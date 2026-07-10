@@ -55,6 +55,13 @@ HEADERS = {
 PAUSA_ENTRE_PAGINAS = 3  # segundos — seja gentil com o servidor
 MAX_PAGINAS = 60         # trava de segurança
 
+# Filtro de época: descarta lotes cuja descrição cite claramente um ano
+# igual ou posterior a este (edição/reimpressão recente). Lotes sem
+# nenhum ano identificável na descrição são mantidos (para não arriscar
+# perder um exemplar raro só por falta de informação no anúncio), mas
+# ficam marcados na planilha para você conferir manualmente.
+ANO_LIMITE = 1940
+
 TELEGRAM_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "")
 TELEGRAM_CHAT = os.environ.get("TELEGRAM_CHAT_ID", "")
 
@@ -106,6 +113,33 @@ def casar_autores(texto: str, autores) -> list:
         if any((" " + p + " ") in t for p in padroes):
             encontrados.append(nome)
     return encontrados
+
+
+# ----------------------------------------------------------------------------
+# Filtro de ano/época
+# ----------------------------------------------------------------------------
+RE_ANO = re.compile(r"\b(1[5-9]\d{2}|20[0-2]\d)\b")  # anos de 1500 a 2029
+
+
+def extrair_anos(texto: str) -> list:
+    """Todos os anos plausíveis (1500-2029) citados na descrição do lote."""
+    return [int(a) for a in RE_ANO.findall(texto)]
+
+
+def classificar_epoca(descricao: str):
+    """
+    Decide se o lote passa no filtro de época.
+    Retorna (passa: bool, anos_encontrados: str).
+    Regra: se o ANO MAIS RECENTE citado na descrição for >= ANO_LIMITE,
+    entende-se que é uma edição/reimpressão moderna e descarta.
+    Se nenhum ano for encontrado, mantém o lote (marcado como indefinido).
+    """
+    anos = extrair_anos(descricao)
+    if not anos:
+        return True, "indefinido"
+    mais_recente = max(anos)
+    passa = mais_recente < ANO_LIMITE
+    return passa, ", ".join(str(a) for a in sorted(set(anos)))
 
 
 # ----------------------------------------------------------------------------
@@ -238,22 +272,28 @@ def abrir_db():
             valor_final   TEXT,
             status        TEXT DEFAULT 'em_andamento',
             url           TEXT,
+            anos_detectados TEXT,
             visto_em      TEXT,
             atualizado_em TEXT
         )""")
+    # migração: bancos criados antes do filtro de época ainda não têm a coluna
+    colunas = {row[1] for row in con.execute("PRAGMA table_info(lotes)")}
+    if "anos_detectados" not in colunas:
+        con.execute("ALTER TABLE lotes ADD COLUMN anos_detectados TEXT")
     con.commit()
     return con
 
 
 def exportar_csv(con):
     cur = con.execute("""SELECT autores, descricao, leiloeiro, uf, data_pregao,
-                                preco_inicial, valor_final, status, url, visto_em
+                                preco_inicial, valor_final, status,
+                                anos_detectados, url, visto_em
                          FROM lotes ORDER BY visto_em DESC""")
     with open(CSV_PATH, "w", newline="", encoding="utf-8-sig") as f:
         w = csv.writer(f, delimiter=";")
         w.writerow(["Autor(es)", "Descrição", "Leiloeiro", "UF", "Data do pregão",
-                    "Lance inicial (R$)", "Valor final (R$)", "Status", "Link",
-                    "Detectado em"])
+                    "Lance inicial (R$)", "Valor final (R$)", "Status",
+                    "Ano(s) detectado(s)", "Link", "Detectado em"])
         w.writerows(cur.fetchall())
     print(f"Planilha atualizada: {CSV_PATH}")
 
@@ -297,10 +337,15 @@ def main():
     print(f"Total de lotes na categoria: {len(lotes)}")
 
     novos_alertas = 0
+    descartados_epoca = 0
     for lote in lotes:
         achados = casar_autores(lote["descricao"], autores)
         if not achados:
             continue
+        passa_epoca, anos_str = classificar_epoca(lote["descricao"])
+        if not passa_epoca:
+            descartados_epoca += 1
+            continue  # edição/reimpressão moderna (ano >= ANO_LIMITE) — ignora
         ja_existe = con.execute(
             "SELECT 1 FROM lotes WHERE id=?", (lote["id"],)).fetchone()
         if ja_existe:
@@ -310,23 +355,27 @@ def main():
         con.execute(
             """INSERT INTO lotes (id, autores, descricao, leiloeiro, uf,
                                   data_pregao, preco_inicial, url,
-                                  visto_em, atualizado_em)
-               VALUES (?,?,?,?,?,?,?,?,?,?)""",
+                                  anos_detectados, visto_em, atualizado_em)
+               VALUES (?,?,?,?,?,?,?,?,?,?,?)""",
             (lote["id"], ", ".join(achados), lote["descricao"],
              lote["leiloeiro"], lote["uf"], lote["data_pregao"],
-             lote["preco_inicial"], lote["url"], agora, agora))
+             lote["preco_inicial"], lote["url"], anos_str, agora, agora))
         novos_alertas += 1
+        aviso_ano = f"\nAno(s) na descrição: {anos_str}" if anos_str != "indefinido" \
+            else "\n⚠️ Ano não identificado na descrição — confira manualmente"
         enviar_telegram(
             "📚 Novo lote encontrado!\n"
             f"Autor(es): {', '.join(achados)}\n"
             f"{lote['descricao'][:300]}\n"
             f"Lance inicial: R$ {lote['preco_inicial'] or '?'}\n"
             f"Pregão: {lote['data_pregao'] or '?'} ({lote['uf']}) — "
-            f"{lote['leiloeiro'] or 'leiloeiro n/d'}\n"
+            f"{lote['leiloeiro'] or 'leiloeiro n/d'}"
+            f"{aviso_ano}\n"
             f"{lote['url']}",
             dry_run=args.dry_run)
     con.commit()
     print(f"Novos lotes com autores da lista: {novos_alertas}")
+    print(f"Descartados por serem edição >= {ANO_LIMITE}: {descartados_epoca}")
 
     # 2) Captura de valores finais ----------------------------------------
     print("Verificando lotes pendentes de valor final...")
