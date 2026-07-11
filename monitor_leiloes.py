@@ -111,9 +111,20 @@ def extrair_anos(texto: str) -> list:
 
 
 def classificar_epoca(descricao: str):
+    """
+    Decide se o lote passa no filtro de época.
+    Retorna (passa: bool, anos_encontrados: str).
+    Regras:
+      - Se o ANO MAIS RECENTE citado na descrição for >= ANO_LIMITE,
+        entende-se que é uma edição/reimpressão moderna e descarta.
+      - Se NENHUM ano for encontrado na descrição, também descarta —
+        na prática, anúncios sem nenhuma data costumam ser edições
+        recentes que o leiloeiro não se deu ao trabalho de datar, e não
+        vale a pena nem registrar nem alertar sobre eles.
+    """
     anos = extrair_anos(descricao)
     if not anos:
-        return True, "indefinido"
+        return False, "indefinido"
     mais_recente = max(anos)
     passa = mais_recente < ANO_LIMITE
     return passa, ", ".join(str(a) for a in sorted(set(anos)))
@@ -372,18 +383,29 @@ def buscar_valor_final(sessao: requests.Session, url_lote: str):
 
 def buscar_pagina_renderizada(navegador, url: str, timeout_ms: int = 40000) -> str:
     """
-    Abre a URL num navegador headless (Chromium via Playwright) e devolve
-    o HTML já processado pelo JavaScript da página.
-
-    Necessário porque descobrimos que o valor "Vendido por: R$ X" nas
-    buscas de leilões finalizados só aparece depois que o JavaScript da
-    própria página carrega essa informação — uma busca simples (sem
-    navegador) nunca vê esse valor, mesmo logado.
+    Abre a URL num navegador headless e devolve o HTML processado.
+    O valor "Vendido por: R$ X" só aparece depois que o JavaScript da
+    página carrega. Além disso, o carregamento parece ser "preguiçoso"
+    (só dispara quando o item aparece na tela) — por isso a página é
+    rolada até o fim em incrementos pequenos.
     """
     pagina = navegador.new_page()
     try:
         pagina.goto(url, timeout=timeout_ms, wait_until="networkidle")
-        pagina.wait_for_timeout(800)
+        pagina.wait_for_timeout(600)
+
+        posicao = 0
+        for _ in range(60):
+            altura_total = pagina.evaluate("document.body.scrollHeight")
+            altura_janela = pagina.evaluate("window.innerHeight")
+            if posicao >= altura_total - altura_janela:
+                break
+            posicao += altura_janela
+            pagina.evaluate(f"window.scrollTo(0, {posicao})")
+            pagina.wait_for_timeout(250)
+        pagina.evaluate("window.scrollTo(0, document.body.scrollHeight)")
+        pagina.wait_for_timeout(1000)
+
         return pagina.content()
     except Exception as e:
         print(f"  [aviso] falha ao renderizar página: {e}", file=sys.stderr)
@@ -532,15 +554,34 @@ def rodar_backfill(autores, sessao, con, logado, colecao, dry_run=False):
                     for l in lotes_novos_pagina:
                         vistos_ids.add(l["id"])
                     print(f"  página {pag}: {len(lotes_novos_pagina)} lotes", flush=True)
+
+                    ids_pagina = [l["id"] for l in lotes_novos_pagina]
+                    marcadores = ",".join("?" * len(ids_pagina))
+                    ja_no_banco = {
+                        row[0]: row[1] for row in con.execute(
+                            f"SELECT id, valor_final FROM lotes WHERE id IN ({marcadores})",
+                            ids_pagina)
+                    }
+                    pagina_inteira_conhecida = ids_pagina and all(
+                        ja_no_banco.get(i) for i in ids_pagina)
+
                     for lote in lotes_novos_pagina:
+                        if lote["id"] in ja_no_banco:
+                            if not ja_no_banco[lote["id"]] and lote["preco_inicial"]:
+                                con.execute(
+                                    "UPDATE lotes SET valor_final=?, status=?, "
+                                    "atualizado_em=? WHERE id=?",
+                                    (lote["preco_inicial"],
+                                     lote["status_venda"] or "vendido",
+                                     agora, lote["id"]))
+                                print(f"    valor atualizado para lote já "
+                                      f"conhecido: {lote['id']}", flush=True)
+                            continue
                         achados = casar_autores(lote["descricao"], autores)
                         if not achados:
                             continue
                         passa_epoca, anos_str = classificar_epoca(lote["descricao"])
                         if not passa_epoca:
-                            continue
-                        if con.execute("SELECT 1 FROM lotes WHERE id=?",
-                                        (lote["id"],)).fetchone():
                             continue
 
                         valor_final = lote["preco_inicial"] or None
@@ -579,6 +620,10 @@ def rodar_backfill(autores, sessao, con, logado, colecao, dry_run=False):
                                 f"{lote['url']}",
                                 dry_run=dry_run)
                     con.commit()
+                    if pagina_inteira_conhecida:
+                        print(f"  página {pag} inteira já estava no banco — "
+                              f"encerrando busca deste autor.", flush=True)
+                        break
                     pag += 1
         finally:
             navegador.close()
