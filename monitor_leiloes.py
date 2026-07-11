@@ -10,15 +10,6 @@ O que faz, a cada execução:
   3. Lotes novos -> alerta no Telegram + gravação no banco SQLite.
   4. Revisita lotes já encerrados para capturar o valor final (arremate).
   5. Exporta tudo para planilha CSV (abre no Excel/Google Sheets).
-
-Uso:
-  pip install requests beautifulsoup4
-  export TELEGRAM_BOT_TOKEN="123456:ABC..."   (crie um bot com o @BotFather)
-  export TELEGRAM_CHAT_ID="123456789"          (obtenha com o @userinfobot)
-  python3 monitor_leiloes.py            # execução normal
-  python3 monitor_leiloes.py --dry-run  # sem enviar Telegram (teste)
-
-Agende 1-2x por dia (cron, GitHub Actions ou PythonAnywhere).
 """
 
 import argparse
@@ -35,11 +26,8 @@ from urllib.parse import quote
 import requests
 from bs4 import BeautifulSoup
 
-# ----------------------------------------------------------------------------
-# Configuração
-# ----------------------------------------------------------------------------
 BASE = "https://www.leiloesbr.com.br"
-CAT_LIVROS_HEX = "4C6976726F73"  # "Livros"
+CAT_LIVROS_HEX = "4C6976726F73"
 URL_ANDAMENTO = (
     BASE + "/busca_andamento.asp?pesquisa=&op=2&v=126&tp=|{cat}|&b=0&pag={pag}"
 )
@@ -490,9 +478,15 @@ def exportar_csv(con):
 
 
 def rodar_backfill(autores, sessao, con, logado, colecao, dry_run=False):
+    """
+    Diferente do escaneamento diário, o backfill NÃO manda um Telegram
+    por lote — seriam dezenas/centenas de mensagens de uma vez. Em vez
+    disso, grava tudo silenciosamente e manda UM resumo só no final.
+    """
     agora = datetime.now(timezone.utc).isoformat(timespec="seconds")
     total_novos = 0
     total_pesquisados = 0
+    stats = {}
 
     for nome, _ in autores:
         total_pesquisados += 1
@@ -544,22 +538,26 @@ def rodar_backfill(autores, sessao, con, logado, colecao, dry_run=False):
                      lote["data_pregao"], lote["preco_inicial"], valor_final,
                      status or "encerrado_historico", lote["url"], agora, agora))
                 total_novos += 1
-                if not deve_alertar_colecao(status_col):
-                    continue
-                rotulo_col = rotulo_status_colecao(status_col, reg_col)
-                enviar_telegram(
-                    f"📚 [Histórico] {', '.join(achados)}\n"
-                    f"{lote['descricao'][:250]}\n"
-                    + (f"Valor final: R$ {valor_final}\n" if valor_final else "")
-                    + (f"{rotulo_col}\n" if rotulo_col else "")
-                    + lote["url"],
-                    dry_run=dry_run)
+                stats[status_col] = stats.get(status_col, 0) + 1
             con.commit()
             pag += 1
             time.sleep(PAUSA_ENTRE_PAGINAS)
 
     print(f"\nBackfill concluído. Autores pesquisados: {total_pesquisados}. "
           f"Novos lotes adicionados ao histórico: {total_novos}.")
+    print("Por situação na coleção:", stats)
+
+    resumo = (
+        f"📚 Backfill concluído!\n"
+        f"{total_novos} lotes novos adicionados ao histórico "
+        f"({total_pesquisados} autores pesquisados).\n\n"
+        f"🚨 Não constavam na sua lista: {stats.get('desconhecido_novo', 0)}\n"
+        f"🔴 Faltam na coleção: {stats.get('falta_edicao_conhecida', 0)}\n"
+        f"🟡 Já tem, outra edição: {stats.get('ja_tenho_outra_edicao', 0)}\n"
+        f"✅ Já tem, mesma edição: {stats.get('ja_tenho_mesma_edicao', 0)}\n\n"
+        f"Confira os detalhes na planilha (leiloes.csv)."
+    )
+    enviar_telegram(resumo, dry_run=dry_run)
 
 
 def rotulo_status_colecao(status: str, registro):
