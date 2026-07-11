@@ -488,6 +488,7 @@ def rodar_backfill(autores, sessao, con, logado, colecao, dry_run=False):
             except requests.RequestException as e:
                 print(f"  [aviso] falha na página {pag}: {e}", file=sys.stderr)
                 break
+            time.sleep(PAUSA_ENTRE_PAGINAS)  # sempre pausa, mesmo sem resultado
             lotes = extrair_lotes(html)
             lotes_novos_pagina = [l for l in lotes if l["id"] not in vistos_ids]
             if not lotes_novos_pagina:
@@ -544,7 +545,6 @@ def rodar_backfill(autores, sessao, con, logado, colecao, dry_run=False):
                         dry_run=dry_run)
             con.commit()
             pag += 1
-            time.sleep(PAUSA_ENTRE_PAGINAS)
 
     print(f"\nBackfill concluído. Autores pesquisados: {total_pesquisados}. "
           f"Novos lotes adicionados ao histórico: {total_novos}.")
