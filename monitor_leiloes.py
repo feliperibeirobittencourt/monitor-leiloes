@@ -2,6 +2,23 @@
 # -*- coding: utf-8 -*-
 """
 Monitor de leilões de livros — LeilõesBR (leiloesbr.com.br)
+============================================================
+O que faz, a cada execução:
+  1. Percorre todas as páginas da categoria "Livros" (leilões em andamento).
+  2. Casa título/descrição dos lotes com a lista de autores (autores.txt),
+     ignorando acentos e variações comuns de grafia (Ruy/Rui, Souza/Sousa...).
+  3. Lotes novos -> alerta no Telegram + gravação no banco SQLite.
+  4. Revisita lotes já encerrados para capturar o valor final (arremate).
+  5. Exporta tudo para planilha CSV (abre no Excel/Google Sheets).
+
+Uso:
+  pip install requests beautifulsoup4
+  export TELEGRAM_BOT_TOKEN="123456:ABC..."   (crie um bot com o @BotFather)
+  export TELEGRAM_CHAT_ID="123456789"          (obtenha com o @userinfobot)
+  python3 monitor_leiloes.py            # execução normal
+  python3 monitor_leiloes.py --dry-run  # sem enviar Telegram (teste)
+
+Agende 1-2x por dia (cron, GitHub Actions ou PythonAnywhere).
 """
 
 import argparse
@@ -19,8 +36,13 @@ import requests
 from bs4 import BeautifulSoup
 from playwright.sync_api import sync_playwright
 
+# ----------------------------------------------------------------------------
+# Configuração
+# ----------------------------------------------------------------------------
 BASE = "https://www.leiloesbr.com.br"
-CAT_LIVROS_HEX = "4C6976726F73"
+# Categoria "Livros" (o parâmetro tp é o nome da categoria em hexadecimal latin-1)
+CAT_LIVROS_HEX = "4C6976726F73"  # "Livros"
+# op=2 = leilões em andamento (padrão da busca); v=126 itens por página
 URL_ANDAMENTO = (
     BASE + "/busca_andamento.asp?pesquisa=&op=2&v=126&tp=|{cat}|&b=0&pag={pag}"
 )
@@ -32,19 +54,33 @@ HEADERS = {
     "User-Agent": "Mozilla/5.0 (compatible; monitor-pessoal-livros/1.0)",
     "Accept-Language": "pt-BR,pt;q=0.9",
 }
-PAUSA_ENTRE_PAGINAS = 3
-MAX_PAGINAS = 60
+PAUSA_ENTRE_PAGINAS = 3  # segundos — seja gentil com o servidor
+MAX_PAGINAS = 60         # trava de segurança
 
+# Filtro de época: descarta lotes cuja descrição cite claramente um ano
+# igual ou posterior a este (edição/reimpressão recente). Lotes sem
+# nenhum ano identificável na descrição são mantidos (para não arriscar
+# perder um exemplar raro só por falta de informação no anúncio), mas
+# ficam marcados na planilha para você conferir manualmente.
 ANO_LIMITE = 1940
 
 TELEGRAM_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "")
 TELEGRAM_CHAT = os.environ.get("TELEGRAM_CHAT_ID", "")
 
+# Login no LeilõesBR (necessário para ver o valor final de leilões encerrados).
+# Mesmo email/senha funciona em todos os leiloeiros, pois o login é
+# centralizado no domínio principal leiloesbr.com.br.
 LEILOESBR_EMAIL = os.environ.get("LEILOESBR_EMAIL", "")
 LEILOESBR_SENHA = os.environ.get("LEILOESBR_SENHA", "")
 
+# Link "Publicar na Web" (CSV) da sua planilha de coleção, aba TODOS.
+# É um link público de só-leitura gerado pelo próprio Google Sheets —
+# não expõe edição, só os dados. Se vazio, a comparação com a coleção
+# é simplesmente pulada (o resto do script funciona normalmente).
 COLECAO_CSV_URL = os.environ.get("COLECAO_CSV_URL", "")
 
+# Variantes de grafia (grafia moderna -> outras grafias encontradas em edições
+# antigas). A comparação já ignora acentos, maiúsculas, y/i e z/s.
 VARIANTES = {
     "Manuel Antônio de Almeida": ["Manoel Antonio de Almeida"],
     "Cláudio Manoel da Costa": ["Claudio Manuel da Costa"],
@@ -58,7 +94,11 @@ VARIANTES = {
 }
 
 
+# ----------------------------------------------------------------------------
+# Normalização e casamento de nomes
+# ----------------------------------------------------------------------------
 def normalizar(texto: str) -> str:
+    """minúsculas, sem acentos, y->i, z->s, sem pontuação, espaços únicos."""
     t = unicodedata.normalize("NFKD", texto)
     t = "".join(c for c in t if not unicodedata.combining(c))
     t = t.lower().replace("y", "i").replace("z", "s")
@@ -67,6 +107,13 @@ def normalizar(texto: str) -> str:
 
 
 def gerar_variantes_reversas(nome_normalizado: str) -> set:
+    """
+    Catálogos de livros raros costumam escrever o autor como
+    'SOBRENOME, Nome' (ex.: 'ASSIS, Machado de' em vez de
+    'Machado de Assis'). Gera esses padrões invertidos considerando o
+    sobrenome como a última palavra (comum) ou as duas últimas
+    (sobrenomes compostos, ex.: 'Porto-Alegre', 'Rio Branco').
+    """
     palavras = nome_normalizado.split()
     variantes = set()
     for k in (1, 2):
@@ -79,6 +126,7 @@ def gerar_variantes_reversas(nome_normalizado: str) -> set:
 
 
 def carregar_autores(caminho: str):
+    """Retorna lista de (nome_original, [padroes_normalizados])."""
     autores = []
     with open(caminho, encoding="utf-8") as f:
         nomes = [ln.strip() for ln in f if ln.strip() and not ln.startswith("#")]
@@ -95,6 +143,7 @@ def carregar_autores(caminho: str):
 
 
 def casar_autores(texto: str, autores) -> list:
+    """Retorna os nomes de autores presentes no texto (busca por frase inteira)."""
     t = " " + normalizar(texto) + " "
     encontrados = []
     for nome, padroes in autores:
@@ -103,10 +152,14 @@ def casar_autores(texto: str, autores) -> list:
     return encontrados
 
 
-RE_ANO = re.compile(r"\b(1[5-9]\d{2}|20[0-2]\d)\b")
+# ----------------------------------------------------------------------------
+# Filtro de ano/época
+# ----------------------------------------------------------------------------
+RE_ANO = re.compile(r"\b(1[5-9]\d{2}|20[0-2]\d)\b")  # anos de 1500 a 2029
 
 
 def extrair_anos(texto: str) -> list:
+    """Todos os anos plausíveis (1500-2029) citados na descrição do lote."""
     return [int(a) for a in RE_ANO.findall(texto)]
 
 
@@ -130,7 +183,152 @@ def classificar_epoca(descricao: str):
     return passa, ", ".join(str(a) for a in sorted(set(anos)))
 
 
+NAO_LIVRO_TERMOS = [
+    "moeda", "moedas", "reis", "selo", "selos", "filatelia",
+    "filatelica", "numismatica", "medalha", "medalhas", "cedula",
+    "cedulas", "flor de cunho", "bronze aluminio", "postal circulado",
+    "cartao postal",
+]
+
+
+def parece_nao_livro(descricao: str) -> bool:
+    """
+    Filtro de conteúdo (feito no nosso código, não pelo site): descarta
+    itens que claramente são moedas, selos, medalhas ou cédulas — não
+    livros — mesmo que mencionem o nome do autor. Isso é comum: existe
+    uma moeda comemorativa de 500 réis (1939) e selos postais para vários
+    dos seus autores, celebrando centenários.
+
+    Necessário porque a busca de leilões finalizados não tem mais filtro
+    de categoria do site (tivemos que tirar por outro motivo — sem isso,
+    a busca de "Olavo Bilac" não achava nada), então agora ela também
+    traz peças de outras categorias (numismática, filatelia etc.).
+    """
+    t = " " + normalizar(descricao) + " "
+    return any(f" {termo} " in t for termo in NAO_LIVRO_TERMOS)
+
+
+CARTA_DOCUMENTO_TERMOS = [
+    "carta", "cartas", "correspondencia", "documento", "documentos",
+    "assinatura", "autografo", "autografos",
+]
+
+
+def parece_carta_documento(descricao: str) -> bool:
+    """
+    Identifica cartas, correspondências, documentos e autógrafos —
+    diferente de moedas/selos (que são descartados sem dó), esses itens
+    continuam sendo registrados e alertados normalmente, só marcados
+    numa coluna própria ('Tipo') para você filtrar fácil na planilha
+    depois, já que não são exatamente livros mas ainda interessam.
+    """
+    t = " " + normalizar(descricao) + " "
+    return any(f" {termo} " in t for termo in CARTA_DOCUMENTO_TERMOS)
+
+
+# ----------------------------------------------------------------------------
+# Extração de detalhes bibliográficos da descrição (melhor esforço)
+# ----------------------------------------------------------------------------
+# IMPORTANTE: descrições de leilão não têm formato padronizado, então estas
+# extrações funcionam quando a informação está escrita de forma reconhecível
+# e devolvem vazio quando não conseguem identificar com segurança. A coluna
+# 'descricao' sempre preserva o texto completo para conferência manual.
+
+RE_EDICAO_NUM = re.compile(
+    r"\b(\d{1,2})\s*[ªa°]?\s*\.?\s*ed(?:i[cç][ãa]o)?\b", re.IGNORECASE)
+ORDINAIS_EDICAO = {"primeira": 1, "segunda": 2, "terceira": 3,
+                   "quarta": 4, "quinta": 5}
+
+
+def extrair_edicao(descricao: str) -> str:
+    """'1ª edição', '2ªEd', '1. ed.', 'primeira edição' -> '1ª', '2ª'..."""
+    m = RE_EDICAO_NUM.search(descricao)
+    if m:
+        return f"{m.group(1)}ª"
+    baixo = normalizar(descricao)
+    for palavra, n in ORDINAIS_EDICAO.items():
+        if f"{palavra} edicao" in baixo:
+            return f"{n}ª"
+    return ""
+
+
+EDITORAS_CONHECIDAS = [
+    "B. L. Garnier", "H. Garnier", "Garnier", "Laemmert", "Francisco Alves",
+    "Livraria do Globo", "José Olympio", "Jose Olympio", "W. M. Jackson",
+    "Companhia Editora Nacional", "Imprensa Nacional", "Livraria Martins",
+    "Briguiet", "Civilização Brasileira", "Norte Editora", "Teixeira",
+]
+RE_EDITORA_GENERICA = re.compile(
+    r"(?:Editora|Livraria|Typographia|Tipografia|Typ\.|Ed\.)\s*:?\s+"
+    r"([A-ZÀ-Ú][\w\.&à-úÀ-Ú' -]{2,40}?)(?=[,;.]|\s+\d|\s*$)",
+    re.UNICODE)
+
+
+def extrair_editora(descricao: str) -> str:
+    """Editoras históricas conhecidas primeiro; senão, padrão 'Editora X'."""
+    for ed in EDITORAS_CONHECIDAS:
+        if ed.lower() in descricao.lower():
+            return ed
+    m = RE_EDITORA_GENERICA.search(descricao)
+    if m:
+        return m.group(1).strip(" .,;-")
+    return ""
+
+
+CIDADES_PUBLICACAO = [
+    "Rio de Janeiro", "São Paulo", "Sao Paulo", "Porto Alegre",
+    "Belo Horizonte", "Recife", "Salvador", "Curitiba", "Brasília",
+    "Brasilia", "Fortaleza", "Paris", "Lisboa", "Porto", "Coimbra",
+    "Milano", "Roma", "Londres", "London", "New York", "Nova York",
+    "Bruxelas", "Madrid", "Buenos Aires",
+]
+
+
+def extrair_cidade(descricao: str) -> str:
+    baixo = normalizar(descricao)
+    for cid in CIDADES_PUBLICACAO:
+        if normalizar(cid) in baixo:
+            if cid == "Sao Paulo":
+                return "São Paulo"
+            if cid == "Brasilia":
+                return "Brasília"
+            return cid
+    return ""
+
+
+ASSINADO_TERMOS = ["assinado", "assinada", "autografado", "autografada",
+                   "autografo", "dedicatoria", "assinatura"]
+
+
+def eh_assinado(descricao: str) -> bool:
+    """Menciona assinatura, autógrafo ou dedicatória do autor?"""
+    baixo = normalizar(descricao)
+    return any(normalizar(t) in baixo for t in ASSINADO_TERMOS)
+
+
+def extrair_detalhes(descricao: str) -> dict:
+    """Reúne todas as extrações bibliográficas num dicionário só."""
+    edicao = extrair_edicao(descricao)
+    return {
+        "edicao": edicao,
+        "primeira_edicao": 1 if edicao == "1ª" else 0,
+        "editora": extrair_editora(descricao),
+        "cidade": extrair_cidade(descricao),
+        "assinado": 1 if eh_assinado(descricao) else 0,
+    }
+
+
 def extrair_titulo(descricao: str) -> str:
+    """
+    Melhor esforço para extrair o título da obra a partir da descrição do
+    lote. Descrições de leilão têm formatos bem variados, então isto NÃO
+    é perfeito — quando não há confiança suficiente, devolve string vazia
+    e o texto completo continua preservado na coluna 'descricao'.
+    Reconhece três padrões comuns observados nos anúncios do site:
+      1) Título entre aspas: ...obra "O Alienista", de Machado de Assis...
+      2) "SOBRENOME, Nome. - TÍTULO." (catálogos de livros raros)
+      3) "Autor, Título, Ano." (formato mais simples)
+    """
     txt = descricao.strip()
 
     m = re.search(r'["“]([^"”]{3,100})["”]', txt)
@@ -153,6 +351,13 @@ def extrair_titulo(descricao: str) -> str:
 
 
 def extrair_info_adicional(descricao: str, titulo: str) -> str:
+    """
+    Retira o título já identificado da descrição e devolve o que sobra
+    (editora, estado de conservação, dimensões, ilustrador etc.) — vira a
+    coluna 'comentarios', preenchida automaticamente a cada execução com
+    o que o anúncio do leilão diz sobre aquele exemplar, além de autor/
+    título/ano. Não é um espaço para anotações suas.
+    """
     txt = descricao.strip()
     if not titulo:
         return txt
@@ -166,6 +371,9 @@ def extrair_info_adicional(descricao: str, titulo: str) -> str:
     return resto
 
 
+# ----------------------------------------------------------------------------
+# Comparação com a coleção pessoal (planilha "TODOS")
+# ----------------------------------------------------------------------------
 STOPWORDS_TITULO = {
     "de", "da", "do", "das", "dos", "e", "a", "o", "as", "os", "em", "um",
     "uma", "para", "com", "por", "no", "na", "nos", "nas", "obras",
@@ -173,6 +381,14 @@ STOPWORDS_TITULO = {
 
 
 def similaridade_titulos(a: str, b: str) -> float:
+    """
+    Similaridade grosseira entre um título/descrição de leilão e uma
+    entrada da sua planilha de coleção. Mede que fração das palavras
+    significativas do texto MAIS CURTO aparece no outro — funciona bem
+    mesmo comparando um título curto com uma descrição de leilão longa.
+    Não é uma correspondência exata: obras com título muito genérico
+    podem gerar falsos positivos/negativos ocasionais.
+    """
     wa = {w for w in normalizar(a).split() if len(w) > 2 and w not in STOPWORDS_TITULO}
     wb = {w for w in normalizar(b).split() if len(w) > 2 and w not in STOPWORDS_TITULO}
     if not wa or not wb:
@@ -182,7 +398,8 @@ def similaridade_titulos(a: str, b: str) -> float:
     return len(inter) / menor
 
 
-def para_ano(valor):
+def para_ano(valor) -> int | None:
+    """Converte '1955', '1955.0', 1955.0 etc. em int; None se não der."""
     try:
         return int(float(valor))
     except (ValueError, TypeError):
@@ -190,6 +407,13 @@ def para_ano(valor):
 
 
 def carregar_colecao(url: str) -> dict:
+    """
+    Baixa e organiza a planilha de coleção (link 'Publicar na Web' em CSV).
+    Retorna {autor_normalizado: [ {titulo, tenho, ano, valor_pago,
+    data_aquisicao, comentario}, ... ]}. Se a URL não estiver configurada
+    ou a busca falhar, devolve {} e o resto do script segue sem essa
+    camada de comparação.
+    """
     if not url:
         return {}
     try:
@@ -251,6 +475,19 @@ LIMIAR_SIMILARIDADE = 0.6
 
 
 def avaliar_contra_colecao(autor: str, titulo_leilao: str, ano_leilao, colecao: dict):
+    """
+    Compara um lote de leilão com a sua coleção catalogada.
+    Retorna (status, registro_correspondente_ou_None).
+
+    Status possíveis:
+      'sem_colecao'            -> planilha não configurada/disponível
+      'desconhecido_novo'      -> autor conhecido, mas ESTE título não
+                                   consta na sua lista — alerta máximo
+      'falta_edicao_conhecida' -> título já catalogado por você, mas
+                                   TENHO está vazio — falta na coleção
+      'ja_tenho_outra_edicao'  -> você tem, mas de um ano diferente
+      'ja_tenho_mesma_edicao'  -> você já tem exatamente esta edição
+    """
     if not colecao:
         return "sem_colecao", None
     registros = colecao.get(normalizar(autor), [])
@@ -271,6 +508,9 @@ def avaliar_contra_colecao(autor: str, titulo_leilao: str, ano_leilao, colecao: 
     return "falta_edicao_conhecida", melhor
 
 
+# ----------------------------------------------------------------------------
+# Raspagem
+# ----------------------------------------------------------------------------
 def buscar_pagina(sessao: requests.Session, pag: int) -> str:
     url = URL_ANDAMENTO.format(cat=CAT_LIVROS_HEX, pag=pag)
     r = sessao.get(url, headers=HEADERS, timeout=40)
@@ -284,6 +524,11 @@ RE_LOTE = re.compile(r"abre_catalogo\.asp\?t=\d+\|([^|]+)\|(\d+)\|(\d+)")
 
 
 def extrair_lotes(html: str) -> list:
+    """
+    Extrai lotes da página de busca. Cada card tem um link para
+    abre_catalogo.asp?t=1|<site do leiloeiro>|<id_leilao>|<id_lote>
+    com a descrição completa no atributo title, e preço/data/galeria por perto.
+    """
     soup = BeautifulSoup(html, "html.parser")
     lotes = {}
     for a in soup.find_all("a", href=RE_LOTE):
@@ -293,10 +538,12 @@ def extrair_lotes(html: str) -> list:
         site_leiloeiro, id_leilao, id_lote = m.group(1), m.group(2), m.group(3)
         chave = f"{id_leilao}-{id_lote}"
         titulo = (a.get("title") or a.get_text(" ", strip=True) or "").strip()
+        # fica com a versão mais longa da descrição encontrada para o lote
         if chave in lotes and len(titulo) <= len(lotes[chave]["descricao"]):
             continue
+        # contexto: sobe até o container do card para achar preço/data/galeria
         contexto = a
-        preco = data_str = uf = galeria = ""
+        preco = data_str = uf = galeria = imagem_url = ""
         texto_mais_amplo = ""
         for _ in range(6):
             contexto = contexto.parent
@@ -318,7 +565,20 @@ def extrair_lotes(html: str) -> list:
                     if "leiloesbr" not in g.get("href", ""):
                         galeria = g.get_text(strip=True)
                         break
-            if preco and data_str and galeria:
+            if not imagem_url:
+                img = contexto.find("img")
+                if img:
+                    # sites com lazy loading costumam usar data-src/data-original
+                    # para a imagem real e deixar src com um placeholder
+                    src = (img.get("data-src") or img.get("data-original")
+                           or img.get("src") or "")
+                    if src and "placeholder" not in src.lower():
+                        if src.startswith("//"):
+                            src = "https:" + src
+                        elif src.startswith("/"):
+                            src = BASE + src
+                        imagem_url = src
+            if preco and data_str and galeria and imagem_url:
                 break
 
         baixo = texto_mais_amplo.lower()
@@ -331,18 +591,22 @@ def extrair_lotes(html: str) -> list:
 
         lotes[chave] = {
             "id": chave,
+            "id_leilao": id_leilao,
+            "id_lote_leiloeiro": id_lote,
             "descricao": titulo,
             "preco_inicial": preco,
             "status_venda": status_venda,
             "data_pregao": data_str.strip(),
             "uf": uf,
             "leiloeiro": galeria,
+            "imagem_url": imagem_url,
             "url": f"{BASE}/abre_catalogo.asp?t=1|{site_leiloeiro}|{id_leilao}|{id_lote}",
         }
     return list(lotes.values())
 
 
 def raspar_andamento(sessao: requests.Session) -> list:
+    """Percorre todas as páginas da categoria Livros e devolve todos os lotes."""
     todos, vistos = [], set()
     for pag in range(1, MAX_PAGINAS + 1):
         try:
@@ -352,7 +616,7 @@ def raspar_andamento(sessao: requests.Session) -> list:
             break
         lotes = extrair_lotes(html)
         novos = [l for l in lotes if l["id"] not in vistos]
-        if not novos:
+        if not novos:  # fim da paginação
             break
         for l in novos:
             vistos.add(l["id"])
@@ -363,6 +627,10 @@ def raspar_andamento(sessao: requests.Session) -> list:
 
 
 def buscar_valor_final(sessao: requests.Session, url_lote: str):
+    """
+    Revisita a página do lote após o pregão para tentar capturar o valor final.
+    Retorna (valor, status) ou (None, None) se não conseguir determinar.
+    """
     try:
         r = sessao.get(url_lote, headers=HEADERS, timeout=40)
         r.raise_for_status()
@@ -383,11 +651,19 @@ def buscar_valor_final(sessao: requests.Session, url_lote: str):
 
 def buscar_pagina_renderizada(navegador, url: str, timeout_ms: int = 40000) -> str:
     """
-    Abre a URL num navegador headless e devolve o HTML processado.
-    O valor "Vendido por: R$ X" só aparece depois que o JavaScript da
-    página carrega. Além disso, o carregamento parece ser "preguiçoso"
-    (só dispara quando o item aparece na tela) — por isso a página é
-    rolada até o fim em incrementos pequenos.
+    Abre a URL num navegador headless (Chromium via Playwright) e devolve
+    o HTML já processado pelo JavaScript da página.
+
+    Necessário porque descobrimos que o valor "Vendido por: R$ X" nas
+    buscas de leilões finalizados só aparece depois que o JavaScript da
+    própria página carrega essa informação — uma busca simples (sem
+    navegador) nunca vê esse valor, mesmo logado.
+
+    Além disso, o carregamento do preço parece ser "preguiçoso" (lazy
+    loading): só dispara quando o item aparece na área visível da tela.
+    Por isso a página é rolada até o fim em incrementos pequenos — pular
+    direto pro final faz os itens do meio nunca passarem pela tela e
+    ficarem sem preço.
     """
     pagina = navegador.new_page()
     try:
@@ -395,7 +671,7 @@ def buscar_pagina_renderizada(navegador, url: str, timeout_ms: int = 40000) -> s
         pagina.wait_for_timeout(600)
 
         posicao = 0
-        for _ in range(60):
+        for _ in range(60):  # trava de segurança para páginas muito longas
             altura_total = pagina.evaluate("document.body.scrollHeight")
             altura_janela = pagina.evaluate("window.innerHeight")
             if posicao >= altura_total - altura_janela:
@@ -404,7 +680,7 @@ def buscar_pagina_renderizada(navegador, url: str, timeout_ms: int = 40000) -> s
             pagina.evaluate(f"window.scrollTo(0, {posicao})")
             pagina.wait_for_timeout(250)
         pagina.evaluate("window.scrollTo(0, document.body.scrollHeight)")
-        pagina.wait_for_timeout(1000)
+        pagina.wait_for_timeout(1000)  # margem final para o último lote carregar
 
         return pagina.content()
     except Exception as e:
@@ -415,6 +691,16 @@ def buscar_pagina_renderizada(navegador, url: str, timeout_ms: int = 40000) -> s
 
 
 def autenticar(sessao: requests.Session) -> bool:
+    """
+    Tenta logar no LeilõesBR para poder ver o valor final de leilões
+    encerrados (essa informação fica escondida sem login).
+
+    AVISO IMPORTANTE: a página de login do site usa componentes dinâmicos
+    e não foi possível confirmar de antemão os nomes exatos dos campos do
+    formulário. Esta função tenta as combinações mais comuns; se nenhuma
+    funcionar, ela apenas retorna False (sem quebrar o resto do script) e
+    imprime um aviso no log para diagnóstico.
+    """
     if not (LEILOESBR_EMAIL and LEILOESBR_SENHA):
         return False
     login_url = f"{BASE}/login_site.asp"
@@ -448,6 +734,9 @@ def autenticar(sessao: requests.Session) -> bool:
     return False
 
 
+# ----------------------------------------------------------------------------
+# Banco de dados e planilha
+# ----------------------------------------------------------------------------
 def abrir_db():
     con = sqlite3.connect(DB_PATH)
     con.execute("""
@@ -459,6 +748,15 @@ def abrir_db():
             descricao     TEXT,
             comentarios   TEXT,
             status_colecao TEXT,
+            tipo_item     TEXT DEFAULT 'livro',
+            edicao        TEXT,
+            editora       TEXT,
+            cidade        TEXT,
+            assinado      INTEGER DEFAULT 0,
+            primeira_edicao INTEGER DEFAULT 0,
+            imagem_url    TEXT,
+            id_leilao     TEXT,
+            id_lote_leiloeiro TEXT,
             leiloeiro     TEXT,
             uf            TEXT,
             data_pregao   TEXT,
@@ -470,6 +768,8 @@ def abrir_db():
             atualizado_em TEXT
         )""")
 
+    # migração: bancos de versões anteriores do script tinham colunas
+    # diferentes (autores/anos_detectados em vez de autor/titulo/ano).
     colunas = {row[1] for row in con.execute("PRAGMA table_info(lotes)")}
 
     if "autor" not in colunas:
@@ -483,11 +783,46 @@ def abrir_db():
             con.execute("ALTER TABLE lotes ADD COLUMN autor TEXT")
 
     for coluna, tipo in (("titulo", "TEXT"), ("ano", "INTEGER"),
-                         ("comentarios", "TEXT"), ("status_colecao", "TEXT")):
+                         ("comentarios", "TEXT"), ("status_colecao", "TEXT"),
+                         ("tipo_item", "TEXT"),
+                         ("edicao", "TEXT"), ("editora", "TEXT"),
+                         ("cidade", "TEXT"), ("assinado", "INTEGER"),
+                         ("primeira_edicao", "INTEGER"),
+                         ("imagem_url", "TEXT"), ("id_leilao", "TEXT"),
+                         ("id_lote_leiloeiro", "TEXT")):
         if coluna not in colunas:
             con.execute(f"ALTER TABLE lotes ADD COLUMN {coluna} {tipo}")
     con.commit()
 
+    # classifica tipo_item (livro / carta_documento) para linhas antigas
+    # gravadas antes desta coluna existir
+    if "tipo_item" not in colunas:
+        for id_, descricao in con.execute(
+                "SELECT id, descricao FROM lotes WHERE tipo_item IS NULL"):
+            tipo = ("carta_documento" if parece_carta_documento(descricao or "")
+                    else "livro")
+            con.execute("UPDATE lotes SET tipo_item=? WHERE id=?", (tipo, id_))
+        con.commit()
+
+    # preenche os detalhes bibliográficos para linhas antigas (o que dá
+    # para extrair da descrição; imagem_url não é recuperável em
+    # retrospecto — só entra para lotes vistos daqui em diante)
+    if "edicao" not in colunas:
+        for id_, descricao in con.execute(
+                "SELECT id, descricao FROM lotes WHERE edicao IS NULL").fetchall():
+            d = descricao or ""
+            ed = extrair_edicao(d)
+            partes = id_.split("-", 1)
+            con.execute(
+                "UPDATE lotes SET edicao=?, editora=?, cidade=?, assinado=?, "
+                "primeira_edicao=?, id_leilao=?, id_lote_leiloeiro=? WHERE id=?",
+                (ed, extrair_editora(d), extrair_cidade(d),
+                 1 if eh_assinado(d) else 0,
+                 1 if ed == "1ª" else 0,
+                 partes[0], partes[1] if len(partes) > 1 else "", id_))
+        con.commit()
+
+    # preenche título/ano para linhas gravadas antes desta atualização
     if "anos_detectados" in colunas:
         pendentes = con.execute(
             "SELECT id, descricao, anos_detectados FROM lotes "
@@ -511,25 +846,52 @@ def abrir_db():
 
 
 def exportar_csv(con):
-    cur = con.execute("""SELECT autor, titulo, ano, status_colecao, descricao,
-                                comentarios, leiloeiro, uf, data_pregao,
+    cur = con.execute("""SELECT autor, titulo, ano, edicao, primeira_edicao,
+                                editora, cidade, assinado,
+                                status_colecao, tipo_item,
+                                descricao, comentarios, leiloeiro, uf, data_pregao,
                                 preco_inicial, valor_final, status,
-                                url, visto_em
+                                url, imagem_url, id_leilao, id_lote_leiloeiro,
+                                visto_em
                          FROM lotes ORDER BY visto_em DESC""")
+    linhas = []
+    for row in cur.fetchall():
+        row = list(row)
+        row[4] = "sim" if row[4] else ""   # primeira_edicao
+        row[7] = "sim" if row[7] else ""   # assinado
+        linhas.append(row)
     with open(CSV_PATH, "w", newline="", encoding="utf-8-sig") as f:
         w = csv.writer(f, delimiter=";")
-        w.writerow(["Autor", "Título", "Ano", "Situação na coleção",
+        w.writerow(["Autor", "Título", "Ano", "Edição", "1ª edição?",
+                    "Editora", "Cidade", "Assinado?",
+                    "Situação na coleção", "Tipo",
                     "Descrição completa", "Comentários", "Leiloeiro", "UF",
                     "Data do pregão", "Lance inicial (R$)", "Valor final (R$)",
-                    "Status", "Link", "Detectado em"])
-        w.writerows(cur.fetchall())
+                    "Status", "Link", "Imagem", "ID leilão", "ID lote",
+                    "Detectado em"])
+        w.writerows(linhas)
     print(f"Planilha atualizada: {CSV_PATH}")
 
 
+# ----------------------------------------------------------------------------
+# Busca histórica (leilões finalizados)
+# ----------------------------------------------------------------------------
 def rodar_backfill(autores, sessao, con, logado, colecao, dry_run=False):
+    """
+    Busca automática nos LEILÕES FINALIZADOS (histórico completo do site,
+    não só os que estão em andamento agora), autor por autor da sua lista.
+    Aplica os mesmos filtros de autor e época, e tenta capturar o valor
+    final de cada lote encontrado (precisa de login para isso).
+
+    Diferente do escaneamento diário, o backfill NÃO manda um Telegram
+    por lote — seriam dezenas/centenas de mensagens de uma vez. Em vez
+    disso, grava tudo silenciosamente no banco e manda UM resumo só no
+    final; os detalhes ficam na planilha para você revisar com calma.
+    """
     agora = datetime.now(timezone.utc).isoformat(timespec="seconds")
     total_novos = 0
     total_pesquisados = 0
+    descartados_nao_livro = 0
     stats = {}
 
     with sync_playwright() as p:
@@ -550,11 +912,14 @@ def rodar_backfill(autores, sessao, con, logado, colecao, dry_run=False):
                     lotes = extrair_lotes(html)
                     lotes_novos_pagina = [l for l in lotes if l["id"] not in vistos_ids]
                     if not lotes_novos_pagina:
-                        break
+                        break  # página vazia OU repetindo resultados já vistos — encerra
                     for l in lotes_novos_pagina:
                         vistos_ids.add(l["id"])
                     print(f"  página {pag}: {len(lotes_novos_pagina)} lotes", flush=True)
 
+                    # Otimização para reexecuções: descobre de uma vez quais
+                    # ids desta página já estão no banco (de uma busca
+                    # anterior) e se já têm valor final preenchido.
                     ids_pagina = [l["id"] for l in lotes_novos_pagina]
                     marcadores = ",".join("?" * len(ids_pagina))
                     ja_no_banco = {
@@ -562,11 +927,19 @@ def rodar_backfill(autores, sessao, con, logado, colecao, dry_run=False):
                             f"SELECT id, valor_final FROM lotes WHERE id IN ({marcadores})",
                             ids_pagina)
                     }
+                    # só para de virar página se a página inteira já era
+                    # conhecida E todos já tinham valor final — assim, um
+                    # lote que passou pelo escaneamento diário (sem preço
+                    # ainda) não bloqueia a atualização por engano.
                     pagina_inteira_conhecida = ids_pagina and all(
                         ja_no_banco.get(i) for i in ids_pagina)
 
                     for lote in lotes_novos_pagina:
                         if lote["id"] in ja_no_banco:
+                            # já existia (provavelmente inserido pelo
+                            # escaneamento diário enquanto ainda estava em
+                            # andamento) — se não tinha valor final e agora
+                            # temos, só atualiza; não insere de novo.
                             if not ja_no_banco[lote["id"]] and lote["preco_inicial"]:
                                 con.execute(
                                     "UPDATE lotes SET valor_final=?, status=?, "
@@ -580,6 +953,9 @@ def rodar_backfill(autores, sessao, con, logado, colecao, dry_run=False):
                         achados = casar_autores(lote["descricao"], autores)
                         if not achados:
                             continue
+                        if parece_nao_livro(lote["descricao"]):
+                            descartados_nao_livro += 1
+                            continue
                         passa_epoca, anos_str = classificar_epoca(lote["descricao"])
                         if not passa_epoca:
                             continue
@@ -591,17 +967,28 @@ def rodar_backfill(autores, sessao, con, logado, colecao, dry_run=False):
                         titulo = extrair_titulo(lote["descricao"])
                         texto_comparar = titulo or lote["descricao"]
                         status_col, reg_col = avaliar_contra_colecao(achados[0], texto_comparar, ano, colecao)
+                        tipo_item = ("carta_documento"
+                                     if parece_carta_documento(lote["descricao"])
+                                     else "livro")
+                        det = extrair_detalhes(lote["descricao"])
 
                         con.execute(
                             """INSERT INTO lotes (id, autor, titulo, ano, descricao,
-                                                  comentarios, status_colecao,
+                                                  comentarios, status_colecao, tipo_item,
+                                                  edicao, primeira_edicao, editora,
+                                                  cidade, assinado, imagem_url,
+                                                  id_leilao, id_lote_leiloeiro,
                                                   leiloeiro, uf, data_pregao,
                                                   preco_inicial, valor_final, status, url,
                                                   visto_em, atualizado_em)
-                               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                             (lote["id"], ", ".join(achados), titulo,
                              ano, lote["descricao"],
                              extrair_info_adicional(lote["descricao"], titulo), status_col,
+                             tipo_item,
+                             det["edicao"], det["primeira_edicao"], det["editora"],
+                             det["cidade"], det["assinado"], lote.get("imagem_url", ""),
+                             lote.get("id_leilao", ""), lote.get("id_lote_leiloeiro", ""),
                              lote["leiloeiro"], lote["uf"],
                              lote["data_pregao"], lote["preco_inicial"], valor_final,
                              status, lote["url"], agora, agora))
@@ -630,6 +1017,8 @@ def rodar_backfill(autores, sessao, con, logado, colecao, dry_run=False):
 
     print(f"\nBackfill concluído. Autores pesquisados: {total_pesquisados}. "
           f"Novos lotes adicionados ao histórico: {total_novos}.")
+    print(f"Descartados por não parecerem livros (moeda/selo/medalha): "
+          f"{descartados_nao_livro}")
     print("Por situação na coleção:", stats)
 
     resumo = (
@@ -645,7 +1034,8 @@ def rodar_backfill(autores, sessao, con, logado, colecao, dry_run=False):
     enviar_telegram(resumo, dry_run=dry_run)
 
 
-def rotulo_status_colecao(status: str, registro):
+def rotulo_status_colecao(status: str, registro: dict | None) -> str:
+    """Texto amigável para colocar na mensagem de alerta."""
     if status == "desconhecido_novo":
         return ("🚨 NÃO CONSTA NA SUA LISTA — você não sabia que este "
                 "título existia!")
@@ -664,9 +1054,14 @@ def rotulo_status_colecao(status: str, registro):
 
 
 def deve_alertar_colecao(status: str) -> bool:
+    """Não vale a pena incomodar com Telegram quando já é exatamente
+    a edição que você tem — mas o lote continua sendo gravado no banco."""
     return status != "ja_tenho_mesma_edicao"
 
 
+# ----------------------------------------------------------------------------
+# Telegram
+# ----------------------------------------------------------------------------
 def enviar_telegram(msg: str, dry_run: bool = False):
     if dry_run or not (TELEGRAM_TOKEN and TELEGRAM_CHAT):
         print("[telegram desativado] " + msg.replace("\n", " | "))
@@ -682,10 +1077,16 @@ def enviar_telegram(msg: str, dry_run: bool = False):
         print(f"[aviso] falha no Telegram: {e}", file=sys.stderr)
 
 
+# ----------------------------------------------------------------------------
+# Fluxo principal
+# ----------------------------------------------------------------------------
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--dry-run", action="store_true")
-    ap.add_argument("--backfill", action="store_true")
+    ap.add_argument("--dry-run", action="store_true",
+                    help="não envia Telegram; apenas imprime")
+    ap.add_argument("--backfill", action="store_true",
+                    help="busca no histórico de leilões finalizados, "
+                         "autor por autor, em vez do escaneamento diário")
     args = ap.parse_args()
 
     autores = carregar_autores(AUTORES_PATH)
@@ -716,6 +1117,7 @@ def main():
 
     agora = datetime.now(timezone.utc).isoformat(timespec="seconds")
 
+    # 1) Lotes em andamento -----------------------------------------------
     print("Raspando categoria Livros (em andamento)...")
     lotes = raspar_andamento(sessao)
     print(f"Total de lotes na categoria: {len(lotes)}")
@@ -730,7 +1132,7 @@ def main():
         passa_epoca, anos_str = classificar_epoca(lote["descricao"])
         if not passa_epoca:
             descartados_epoca += 1
-            continue
+            continue  # edição/reimpressão moderna (ano >= ANO_LIMITE) — ignora
         ja_existe = con.execute(
             "SELECT 1 FROM lotes WHERE id=?", (lote["id"],)).fetchone()
         if ja_existe:
@@ -742,14 +1144,23 @@ def main():
         titulo = extrair_titulo(lote["descricao"])
         texto_comparar = titulo or lote["descricao"]
         status_col, reg_col = avaliar_contra_colecao(achados[0], texto_comparar, ano, colecao)
+        tipo_item = ("carta_documento" if parece_carta_documento(lote["descricao"])
+                     else "livro")
+        det = extrair_detalhes(lote["descricao"])
 
         con.execute(
             """INSERT INTO lotes (id, autor, titulo, ano, descricao, comentarios,
-                                  status_colecao, leiloeiro, uf, data_pregao,
+                                  status_colecao, tipo_item,
+                                  edicao, primeira_edicao, editora, cidade,
+                                  assinado, imagem_url, id_leilao, id_lote_leiloeiro,
+                                  leiloeiro, uf, data_pregao,
                                   preco_inicial, url, visto_em, atualizado_em)
-               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
             (lote["id"], ", ".join(achados), titulo, ano, lote["descricao"],
-             extrair_info_adicional(lote["descricao"], titulo), status_col,
+             extrair_info_adicional(lote["descricao"], titulo), status_col, tipo_item,
+             det["edicao"], det["primeira_edicao"], det["editora"], det["cidade"],
+             det["assinado"], lote.get("imagem_url", ""),
+             lote.get("id_leilao", ""), lote.get("id_lote_leiloeiro", ""),
              lote["leiloeiro"], lote["uf"], lote["data_pregao"],
              lote["preco_inicial"], lote["url"], agora, agora))
         novos_alertas += 1
@@ -757,7 +1168,7 @@ def main():
             colecao_stats[status_col] = colecao_stats.get(status_col, 0) + 1
 
         if not deve_alertar_colecao(status_col):
-            continue
+            continue  # já tem exatamente esta edição — não incomoda no Telegram
 
         aviso_ano = f"\nAno(s) na descrição: {anos_str}" if anos_str != "indefinido" \
             else "\n⚠️ Ano não identificado na descrição — confira manualmente"
@@ -779,6 +1190,7 @@ def main():
     if colecao_stats:
         print("Por situação na coleção:", colecao_stats)
 
+    # 2) Captura de valores finais ----------------------------------------
     print("Verificando lotes pendentes de valor final...")
     pendentes = con.execute(
         "SELECT id, url, autor FROM lotes WHERE status='em_andamento'"
@@ -786,7 +1198,7 @@ def main():
     ids_ativos = {l["id"] for l in lotes}
     for id_, url, aut in pendentes:
         if id_ in ids_ativos:
-            continue
+            continue  # ainda em andamento
         valor, status = buscar_valor_final(sessao, url)
         time.sleep(PAUSA_ENTRE_PAGINAS)
         if status:
@@ -798,11 +1210,13 @@ def main():
                     f"🔨 Arrematado — {aut}\nValor final: R$ {valor}\n{url}",
                     dry_run=args.dry_run)
         else:
+            # some do catálogo sem página acessível: marca como encerrado s/ dado
             con.execute(
                 "UPDATE lotes SET status='encerrado_sem_dado', atualizado_em=? "
                 "WHERE id=?", (agora, id_))
     con.commit()
 
+    # 3) Planilha -----------------------------------------------------------
     exportar_csv(con)
     con.close()
     print("Concluído.")
