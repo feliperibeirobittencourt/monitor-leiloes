@@ -2,14 +2,6 @@
 # -*- coding: utf-8 -*-
 """
 Monitor de leilões de livros — LeilõesBR (leiloesbr.com.br)
-============================================================
-O que faz, a cada execução:
-  1. Percorre todas as páginas da categoria "Livros" (leilões em andamento).
-  2. Casa título/descrição dos lotes com a lista de autores (autores.txt),
-     ignorando acentos e variações comuns de grafia (Ruy/Rui, Souza/Sousa...).
-  3. Lotes novos -> alerta no Telegram + gravação no banco SQLite.
-  4. Revisita lotes já encerrados para capturar o valor final (arremate).
-  5. Exporta tudo para planilha CSV (abre no Excel/Google Sheets).
 """
 
 import argparse
@@ -478,11 +470,6 @@ def exportar_csv(con):
 
 
 def rodar_backfill(autores, sessao, con, logado, colecao, dry_run=False):
-    """
-    Diferente do escaneamento diário, o backfill NÃO manda um Telegram
-    por lote — seriam dezenas/centenas de mensagens de uma vez. Em vez
-    disso, grava tudo silenciosamente e manda UM resumo só no final.
-    """
     agora = datetime.now(timezone.utc).isoformat(timespec="seconds")
     total_novos = 0
     total_pesquisados = 0
@@ -490,8 +477,9 @@ def rodar_backfill(autores, sessao, con, logado, colecao, dry_run=False):
 
     for nome, _ in autores:
         total_pesquisados += 1
-        print(f"[{total_pesquisados}/{len(autores)}] Buscando: {nome}")
+        print(f"[{total_pesquisados}/{len(autores)}] Buscando: {nome}", flush=True)
         pag = 1
+        vistos_ids = set()
         while pag <= MAX_PAGINAS:
             url = (f"{BASE}/busca_finalizado.asp?pesquisa={quote(nome)}"
                    f"&tp=|{CAT_LIVROS_HEX}|&op=2&v=126&pag={pag}")
@@ -501,9 +489,13 @@ def rodar_backfill(autores, sessao, con, logado, colecao, dry_run=False):
                 print(f"  [aviso] falha na página {pag}: {e}", file=sys.stderr)
                 break
             lotes = extrair_lotes(html)
-            if not lotes:
-                break
-            for lote in lotes:
+            lotes_novos_pagina = [l for l in lotes if l["id"] not in vistos_ids]
+            if not lotes_novos_pagina:
+                break  # página vazia OU repetindo resultados já vistos — encerra
+            for l in lotes_novos_pagina:
+                vistos_ids.add(l["id"])
+            print(f"  página {pag}: {len(lotes_novos_pagina)} lotes", flush=True)
+            for lote in lotes_novos_pagina:
                 achados = casar_autores(lote["descricao"], autores)
                 if not achados:
                     continue
