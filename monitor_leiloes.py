@@ -482,7 +482,7 @@ def rodar_backfill(autores, sessao, con, logado, colecao, dry_run=False):
         vistos_ids = set()
         while pag <= MAX_PAGINAS:
             url = (f"{BASE}/busca_finalizado.asp?pesquisa={quote(nome)}"
-                   f"&tp=|{CAT_LIVROS_HEX}|&op=2&v=126&pag={pag}")
+                   f"&tp=|&op=2&v=126&pag={pag}")
             try:
                 html = sessao.get(url, headers=HEADERS, timeout=40).text
             except requests.RequestException as e:
@@ -491,7 +491,7 @@ def rodar_backfill(autores, sessao, con, logado, colecao, dry_run=False):
             lotes = extrair_lotes(html)
             lotes_novos_pagina = [l for l in lotes if l["id"] not in vistos_ids]
             if not lotes_novos_pagina:
-                break  # página vazia OU repetindo resultados já vistos — encerra
+                break
             for l in lotes_novos_pagina:
                 vistos_ids.add(l["id"])
             print(f"  página {pag}: {len(lotes_novos_pagina)} lotes", flush=True)
@@ -531,6 +531,17 @@ def rodar_backfill(autores, sessao, con, logado, colecao, dry_run=False):
                      status or "encerrado_historico", lote["url"], agora, agora))
                 total_novos += 1
                 stats[status_col] = stats.get(status_col, 0) + 1
+
+                if status_col == "falta_edicao_conhecida":
+                    valor_mostrado = valor_final or lote["preco_inicial"] or "não informado"
+                    enviar_telegram(
+                        "🔴 FALTA NA COLEÇÃO\n"
+                        f"Autor: {', '.join(achados)}\n"
+                        f"Título: {titulo or lote['descricao'][:150]}\n"
+                        f"Ano: {ano if ano else 'não identificado'}\n"
+                        f"Valor: R$ {valor_mostrado}\n"
+                        f"{lote['url']}",
+                        dry_run=dry_run)
             con.commit()
             pag += 1
             time.sleep(PAUSA_ENTRE_PAGINAS)
