@@ -30,6 +30,7 @@ import sys
 import time
 import unicodedata
 from datetime import datetime, timezone
+from urllib.parse import quote
 
 import requests
 from bs4 import BeautifulSoup
@@ -38,9 +39,7 @@ from bs4 import BeautifulSoup
 # Configuração
 # ----------------------------------------------------------------------------
 BASE = "https://www.leiloesbr.com.br"
-# Categoria "Livros" (o parâmetro tp é o nome da categoria em hexadecimal latin-1)
 CAT_LIVROS_HEX = "4C6976726F73"  # "Livros"
-# op=2 = leilões em andamento (padrão da busca); v=126 itens por página
 URL_ANDAMENTO = (
     BASE + "/busca_andamento.asp?pesquisa=&op=2&v=126&tp=|{cat}|&b=0&pag={pag}"
 )
@@ -52,21 +51,19 @@ HEADERS = {
     "User-Agent": "Mozilla/5.0 (compatible; monitor-pessoal-livros/1.0)",
     "Accept-Language": "pt-BR,pt;q=0.9",
 }
-PAUSA_ENTRE_PAGINAS = 3  # segundos — seja gentil com o servidor
-MAX_PAGINAS = 60         # trava de segurança
+PAUSA_ENTRE_PAGINAS = 3
+MAX_PAGINAS = 60
 
-# Filtro de época: descarta lotes cuja descrição cite claramente um ano
-# igual ou posterior a este (edição/reimpressão recente). Lotes sem
-# nenhum ano identificável na descrição são mantidos (para não arriscar
-# perder um exemplar raro só por falta de informação no anúncio), mas
-# ficam marcados na planilha para você conferir manualmente.
 ANO_LIMITE = 1940
 
 TELEGRAM_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "")
 TELEGRAM_CHAT = os.environ.get("TELEGRAM_CHAT_ID", "")
 
-# Variantes de grafia (grafia moderna -> outras grafias encontradas em edições
-# antigas). A comparação já ignora acentos, maiúsculas, y/i e z/s.
+LEILOESBR_EMAIL = os.environ.get("LEILOESBR_EMAIL", "")
+LEILOESBR_SENHA = os.environ.get("LEILOESBR_SENHA", "")
+
+COLECAO_CSV_URL = os.environ.get("COLECAO_CSV_URL", "")
+
 VARIANTES = {
     "Manuel Antônio de Almeida": ["Manoel Antonio de Almeida"],
     "Cláudio Manoel da Costa": ["Claudio Manuel da Costa"],
@@ -80,11 +77,7 @@ VARIANTES = {
 }
 
 
-# ----------------------------------------------------------------------------
-# Normalização e casamento de nomes
-# ----------------------------------------------------------------------------
 def normalizar(texto: str) -> str:
-    """minúsculas, sem acentos, y->i, z->s, sem pontuação, espaços únicos."""
     t = unicodedata.normalize("NFKD", texto)
     t = "".join(c for c in t if not unicodedata.combining(c))
     t = t.lower().replace("y", "i").replace("z", "s")
@@ -92,8 +85,19 @@ def normalizar(texto: str) -> str:
     return re.sub(r"\s+", " ", t).strip()
 
 
+def gerar_variantes_reversas(nome_normalizado: str) -> set:
+    palavras = nome_normalizado.split()
+    variantes = set()
+    for k in (1, 2):
+        if len(palavras) > k:
+            sobrenome = " ".join(palavras[-k:])
+            resto = " ".join(palavras[:-k])
+            if resto:
+                variantes.add(f"{sobrenome} {resto}")
+    return variantes
+
+
 def carregar_autores(caminho: str):
-    """Retorna lista de (nome_original, [padroes_normalizados])."""
     autores = []
     with open(caminho, encoding="utf-8") as f:
         nomes = [ln.strip() for ln in f if ln.strip() and not ln.startswith("#")]
@@ -101,12 +105,15 @@ def carregar_autores(caminho: str):
         padroes = {normalizar(nome)}
         for var in VARIANTES.get(nome, []):
             padroes.add(normalizar(var))
+        reversas = set()
+        for p in padroes:
+            reversas |= gerar_variantes_reversas(p)
+        padroes |= reversas
         autores.append((nome, sorted(padroes)))
     return autores
 
 
 def casar_autores(texto: str, autores) -> list:
-    """Retorna os nomes de autores presentes no texto (busca por frase inteira)."""
     t = " " + normalizar(texto) + " "
     encontrados = []
     for nome, padroes in autores:
@@ -115,25 +122,14 @@ def casar_autores(texto: str, autores) -> list:
     return encontrados
 
 
-# ----------------------------------------------------------------------------
-# Filtro de ano/época
-# ----------------------------------------------------------------------------
-RE_ANO = re.compile(r"\b(1[5-9]\d{2}|20[0-2]\d)\b")  # anos de 1500 a 2029
+RE_ANO = re.compile(r"\b(1[5-9]\d{2}|20[0-2]\d)\b")
 
 
 def extrair_anos(texto: str) -> list:
-    """Todos os anos plausíveis (1500-2029) citados na descrição do lote."""
     return [int(a) for a in RE_ANO.findall(texto)]
 
 
 def classificar_epoca(descricao: str):
-    """
-    Decide se o lote passa no filtro de época.
-    Retorna (passa: bool, anos_encontrados: str).
-    Regra: se o ANO MAIS RECENTE citado na descrição for >= ANO_LIMITE,
-    entende-se que é uma edição/reimpressão moderna e descarta.
-    Se nenhum ano for encontrado, mantém o lote (marcado como indefinido).
-    """
     anos = extrair_anos(descricao)
     if not anos:
         return True, "indefinido"
@@ -142,9 +138,147 @@ def classificar_epoca(descricao: str):
     return passa, ", ".join(str(a) for a in sorted(set(anos)))
 
 
-# ----------------------------------------------------------------------------
-# Raspagem
-# ----------------------------------------------------------------------------
+def extrair_titulo(descricao: str) -> str:
+    txt = descricao.strip()
+
+    m = re.search(r'["“]([^"”]{3,100})["”]', txt)
+    if m:
+        return m.group(1).strip()
+
+    m = re.match(r'^[A-ZÀ-Ú][A-ZÀ-Úa-zà-ú\.,\s]{1,45}?[-–]\s*(.+?)\.', txt)
+    if m:
+        candidato = m.group(1).strip(" .,-–")
+        if 3 <= len(candidato) <= 120:
+            return candidato
+
+    m = re.match(r'^[^,]{3,40},\s*(.+?),\s*\d{4}', txt)
+    if m:
+        candidato = m.group(1).strip(" .,-–")
+        if 3 <= len(candidato) <= 120:
+            return candidato
+
+    return ""
+
+
+def extrair_info_adicional(descricao: str, titulo: str) -> str:
+    txt = descricao.strip()
+    if not titulo:
+        return txt
+    idx = txt.find(titulo)
+    if idx == -1:
+        return txt
+    resto = txt[:idx] + txt[idx + len(titulo):]
+    resto = re.sub(r'^[\s\.,\-–"“”]+', '', resto)
+    resto = re.sub(r'[-–]\s*\.', '.', resto)
+    resto = re.sub(r'\s+', ' ', resto).strip()
+    return resto
+
+
+STOPWORDS_TITULO = {
+    "de", "da", "do", "das", "dos", "e", "a", "o", "as", "os", "em", "um",
+    "uma", "para", "com", "por", "no", "na", "nos", "nas", "obras",
+}
+
+
+def similaridade_titulos(a: str, b: str) -> float:
+    wa = {w for w in normalizar(a).split() if len(w) > 2 and w not in STOPWORDS_TITULO}
+    wb = {w for w in normalizar(b).split() if len(w) > 2 and w not in STOPWORDS_TITULO}
+    if not wa or not wb:
+        return 0.0
+    inter = wa & wb
+    menor = min(len(wa), len(wb))
+    return len(inter) / menor
+
+
+def para_ano(valor):
+    try:
+        return int(float(valor))
+    except (ValueError, TypeError):
+        return None
+
+
+def carregar_colecao(url: str) -> dict:
+    if not url:
+        return {}
+    try:
+        r = requests.get(url, timeout=30)
+        r.raise_for_status()
+    except requests.RequestException as e:
+        print(f"[aviso] não consegui baixar a planilha de coleção: {e}", file=sys.stderr)
+        return {}
+
+    texto = r.content.decode("utf-8-sig", errors="replace")
+    leitor = csv.reader(texto.splitlines())
+    linhas = list(leitor)
+    if not linhas:
+        return {}
+    cabecalho = [normalizar(c) for c in linhas[0]]
+
+    def idx(*nomes_possiveis):
+        for nome in nomes_possiveis:
+            if nome in cabecalho:
+                return cabecalho.index(nome)
+        return None
+
+    i_autor = idx("autores", "autor")
+    i_titulo = idx("titulo")
+    i_tenho = idx("tenho")
+    i_ano = idx("ano")
+    i_valor = idx("valor pago", "valor")
+    i_data = idx("data de aquisicao", "data aquisicao", "data")
+    i_comentario = idx("comentario", "comentarios")
+
+    if i_autor is None or i_titulo is None:
+        print("[aviso] planilha de coleção sem colunas AUTORES/TITULO "
+              "reconhecíveis — comparação desativada nesta execução.",
+              file=sys.stderr)
+        return {}
+
+    colecao = {}
+    for linha in linhas[1:]:
+        if len(linha) <= max(i_autor, i_titulo):
+            continue
+        autor = linha[i_autor].strip()
+        titulo = linha[i_titulo].strip()
+        if not autor or not titulo:
+            continue
+        registro = {
+            "titulo": titulo,
+            "tenho": (linha[i_tenho].strip().upper() == "TENHO"
+                      if i_tenho is not None and i_tenho < len(linha) else False),
+            "ano": para_ano(linha[i_ano]) if i_ano is not None and i_ano < len(linha) else None,
+            "valor_pago": linha[i_valor] if i_valor is not None and i_valor < len(linha) else "",
+            "data_aquisicao": linha[i_data] if i_data is not None and i_data < len(linha) else "",
+            "comentario": linha[i_comentario] if i_comentario is not None and i_comentario < len(linha) else "",
+        }
+        colecao.setdefault(normalizar(autor), []).append(registro)
+    return colecao
+
+
+LIMIAR_SIMILARIDADE = 0.6
+
+
+def avaliar_contra_colecao(autor: str, titulo_leilao: str, ano_leilao, colecao: dict):
+    if not colecao:
+        return "sem_colecao", None
+    registros = colecao.get(normalizar(autor), [])
+    if not registros:
+        return "desconhecido_novo", None
+
+    melhor, melhor_score = None, 0.0
+    for reg in registros:
+        s = similaridade_titulos(titulo_leilao or "", reg["titulo"])
+        if s > melhor_score:
+            melhor_score, melhor = s, reg
+    if melhor_score < LIMIAR_SIMILARIDADE:
+        return "desconhecido_novo", None
+    if melhor["tenho"]:
+        if para_ano(ano_leilao) == melhor["ano"]:
+            return "ja_tenho_mesma_edicao", melhor
+        return "ja_tenho_outra_edicao", melhor
+    return "falta_edicao_conhecida", melhor
+
+
 def buscar_pagina(sessao: requests.Session, pag: int) -> str:
     url = URL_ANDAMENTO.format(cat=CAT_LIVROS_HEX, pag=pag)
     r = sessao.get(url, headers=HEADERS, timeout=40)
@@ -158,11 +292,6 @@ RE_LOTE = re.compile(r"abre_catalogo\.asp\?t=\d+\|([^|]+)\|(\d+)\|(\d+)")
 
 
 def extrair_lotes(html: str) -> list:
-    """
-    Extrai lotes da página de busca. Cada card tem um link para
-    abre_catalogo.asp?t=1|<site do leiloeiro>|<id_leilao>|<id_lote>
-    com a descrição completa no atributo title, e preço/data/galeria por perto.
-    """
     soup = BeautifulSoup(html, "html.parser")
     lotes = {}
     for a in soup.find_all("a", href=RE_LOTE):
@@ -172,10 +301,8 @@ def extrair_lotes(html: str) -> list:
         site_leiloeiro, id_leilao, id_lote = m.group(1), m.group(2), m.group(3)
         chave = f"{id_leilao}-{id_lote}"
         titulo = (a.get("title") or a.get_text(" ", strip=True) or "").strip()
-        # fica com a versão mais longa da descrição encontrada para o lote
         if chave in lotes and len(titulo) <= len(lotes[chave]["descricao"]):
             continue
-        # contexto: sobe até o container do card para achar preço/data/galeria
         contexto = a
         preco = data_str = uf = galeria = ""
         for _ in range(6):
@@ -212,7 +339,6 @@ def extrair_lotes(html: str) -> list:
 
 
 def raspar_andamento(sessao: requests.Session) -> list:
-    """Percorre todas as páginas da categoria Livros e devolve todos os lotes."""
     todos, vistos = [], set()
     for pag in range(1, MAX_PAGINAS + 1):
         try:
@@ -222,7 +348,7 @@ def raspar_andamento(sessao: requests.Session) -> list:
             break
         lotes = extrair_lotes(html)
         novos = [l for l in lotes if l["id"] not in vistos]
-        if not novos:  # fim da paginação
+        if not novos:
             break
         for l in novos:
             vistos.add(l["id"])
@@ -233,10 +359,6 @@ def raspar_andamento(sessao: requests.Session) -> list:
 
 
 def buscar_valor_final(sessao: requests.Session, url_lote: str):
-    """
-    Revisita a página do lote após o pregão para tentar capturar o valor final.
-    Retorna (valor, status) ou (None, None) se não conseguir determinar.
-    """
     try:
         r = sessao.get(url_lote, headers=HEADERS, timeout=40)
         r.raise_for_status()
@@ -255,16 +377,51 @@ def buscar_valor_final(sessao: requests.Session, url_lote: str):
     return None, None
 
 
-# ----------------------------------------------------------------------------
-# Banco de dados e planilha
-# ----------------------------------------------------------------------------
+def autenticar(sessao: requests.Session) -> bool:
+    if not (LEILOESBR_EMAIL and LEILOESBR_SENHA):
+        return False
+    login_url = f"{BASE}/login_site.asp"
+    try:
+        sessao.get(login_url, headers=HEADERS, timeout=30)
+    except requests.RequestException as e:
+        print(f"[aviso] não consegui abrir a página de login: {e}", file=sys.stderr)
+        return False
+
+    tentativas = [
+        {"Email": LEILOESBR_EMAIL, "Senha": LEILOESBR_SENHA},
+        {"email": LEILOESBR_EMAIL, "senha": LEILOESBR_SENHA},
+        {"txtEmail": LEILOESBR_EMAIL, "txtSenha": LEILOESBR_SENHA},
+        {"login": LEILOESBR_EMAIL, "senha": LEILOESBR_SENHA},
+        {"Email": LEILOESBR_EMAIL, "Password": LEILOESBR_SENHA},
+    ]
+    for campos in tentativas:
+        try:
+            r = sessao.post(login_url, data=campos, headers=HEADERS,
+                             timeout=30, allow_redirects=True)
+        except requests.RequestException:
+            continue
+        texto = r.text.lower()
+        indicios_logado = ("minha conta" in texto and "faça seu login" not in texto) \
+            or "sair da conta" in texto or "logout" in texto
+        if indicios_logado:
+            return True
+    print("[aviso] não consegui confirmar login automático — "
+          "os campos do formulário podem ter nomes diferentes do esperado.",
+          file=sys.stderr)
+    return False
+
+
 def abrir_db():
     con = sqlite3.connect(DB_PATH)
     con.execute("""
         CREATE TABLE IF NOT EXISTS lotes (
             id            TEXT PRIMARY KEY,
-            autores       TEXT,
+            autor         TEXT,
+            titulo        TEXT,
+            ano           INTEGER,
             descricao     TEXT,
+            comentarios   TEXT,
+            status_colecao TEXT,
             leiloeiro     TEXT,
             uf            TEXT,
             data_pregao   TEXT,
@@ -272,35 +429,161 @@ def abrir_db():
             valor_final   TEXT,
             status        TEXT DEFAULT 'em_andamento',
             url           TEXT,
-            anos_detectados TEXT,
             visto_em      TEXT,
             atualizado_em TEXT
         )""")
-    # migração: bancos criados antes do filtro de época ainda não têm a coluna
+
     colunas = {row[1] for row in con.execute("PRAGMA table_info(lotes)")}
-    if "anos_detectados" not in colunas:
-        con.execute("ALTER TABLE lotes ADD COLUMN anos_detectados TEXT")
+
+    if "autor" not in colunas:
+        if "autores" in colunas:
+            try:
+                con.execute("ALTER TABLE lotes RENAME COLUMN autores TO autor")
+            except sqlite3.OperationalError:
+                con.execute("ALTER TABLE lotes ADD COLUMN autor TEXT")
+                con.execute("UPDATE lotes SET autor = autores")
+        else:
+            con.execute("ALTER TABLE lotes ADD COLUMN autor TEXT")
+
+    for coluna, tipo in (("titulo", "TEXT"), ("ano", "INTEGER"),
+                         ("comentarios", "TEXT"), ("status_colecao", "TEXT")):
+        if coluna not in colunas:
+            con.execute(f"ALTER TABLE lotes ADD COLUMN {coluna} {tipo}")
     con.commit()
+
+    if "anos_detectados" in colunas:
+        pendentes = con.execute(
+            "SELECT id, descricao, anos_detectados FROM lotes "
+            "WHERE titulo IS NULL OR titulo=''").fetchall()
+        for id_, descricao, anos_str in pendentes:
+            titulo = extrair_titulo(descricao or "")
+            comentarios = extrair_info_adicional(descricao or "", titulo)
+            ano = None
+            if anos_str and anos_str != "indefinido":
+                try:
+                    ano = max(int(a.strip()) for a in anos_str.split(","))
+                except ValueError:
+                    ano = None
+            con.execute("UPDATE lotes SET titulo=?, ano=?, comentarios=? WHERE id=?",
+                        (titulo, ano, comentarios, id_))
+        con.commit()
+        if pendentes:
+            print(f"Migração: {len(pendentes)} lote(s) antigos atualizados "
+                  f"com título/ano.")
     return con
 
 
 def exportar_csv(con):
-    cur = con.execute("""SELECT autores, descricao, leiloeiro, uf, data_pregao,
+    cur = con.execute("""SELECT autor, titulo, ano, status_colecao, descricao,
+                                comentarios, leiloeiro, uf, data_pregao,
                                 preco_inicial, valor_final, status,
-                                anos_detectados, url, visto_em
+                                url, visto_em
                          FROM lotes ORDER BY visto_em DESC""")
     with open(CSV_PATH, "w", newline="", encoding="utf-8-sig") as f:
         w = csv.writer(f, delimiter=";")
-        w.writerow(["Autor(es)", "Descrição", "Leiloeiro", "UF", "Data do pregão",
-                    "Lance inicial (R$)", "Valor final (R$)", "Status",
-                    "Ano(s) detectado(s)", "Link", "Detectado em"])
+        w.writerow(["Autor", "Título", "Ano", "Situação na coleção",
+                    "Descrição completa", "Comentários", "Leiloeiro", "UF",
+                    "Data do pregão", "Lance inicial (R$)", "Valor final (R$)",
+                    "Status", "Link", "Detectado em"])
         w.writerows(cur.fetchall())
     print(f"Planilha atualizada: {CSV_PATH}")
 
 
-# ----------------------------------------------------------------------------
-# Telegram
-# ----------------------------------------------------------------------------
+def rodar_backfill(autores, sessao, con, logado, colecao, dry_run=False):
+    agora = datetime.now(timezone.utc).isoformat(timespec="seconds")
+    total_novos = 0
+    total_pesquisados = 0
+
+    for nome, _ in autores:
+        total_pesquisados += 1
+        print(f"[{total_pesquisados}/{len(autores)}] Buscando: {nome}")
+        pag = 1
+        while pag <= MAX_PAGINAS:
+            url = (f"{BASE}/busca_finalizado.asp?pesquisa={quote(nome)}"
+                   f"&tp=|{CAT_LIVROS_HEX}|&op=2&v=126&pag={pag}")
+            try:
+                html = sessao.get(url, headers=HEADERS, timeout=40).text
+            except requests.RequestException as e:
+                print(f"  [aviso] falha na página {pag}: {e}", file=sys.stderr)
+                break
+            lotes = extrair_lotes(html)
+            if not lotes:
+                break
+            for lote in lotes:
+                achados = casar_autores(lote["descricao"], autores)
+                if not achados:
+                    continue
+                passa_epoca, anos_str = classificar_epoca(lote["descricao"])
+                if not passa_epoca:
+                    continue
+                if con.execute("SELECT 1 FROM lotes WHERE id=?",
+                                (lote["id"],)).fetchone():
+                    continue
+
+                valor_final, status = (None, None)
+                if logado:
+                    valor_final, status = buscar_valor_final(sessao, lote["url"])
+                    time.sleep(PAUSA_ENTRE_PAGINAS)
+                ano = (max(int(a) for a in anos_str.split(", "))
+                       if anos_str != "indefinido" else None)
+                titulo = extrair_titulo(lote["descricao"])
+                texto_comparar = titulo or lote["descricao"]
+                status_col, reg_col = avaliar_contra_colecao(achados[0], texto_comparar, ano, colecao)
+
+                con.execute(
+                    """INSERT INTO lotes (id, autor, titulo, ano, descricao,
+                                          comentarios, status_colecao,
+                                          leiloeiro, uf, data_pregao,
+                                          preco_inicial, valor_final, status, url,
+                                          visto_em, atualizado_em)
+                       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                    (lote["id"], ", ".join(achados), titulo,
+                     ano, lote["descricao"],
+                     extrair_info_adicional(lote["descricao"], titulo), status_col,
+                     lote["leiloeiro"], lote["uf"],
+                     lote["data_pregao"], lote["preco_inicial"], valor_final,
+                     status or "encerrado_historico", lote["url"], agora, agora))
+                total_novos += 1
+                if not deve_alertar_colecao(status_col):
+                    continue
+                rotulo_col = rotulo_status_colecao(status_col, reg_col)
+                enviar_telegram(
+                    f"📚 [Histórico] {', '.join(achados)}\n"
+                    f"{lote['descricao'][:250]}\n"
+                    + (f"Valor final: R$ {valor_final}\n" if valor_final else "")
+                    + (f"{rotulo_col}\n" if rotulo_col else "")
+                    + lote["url"],
+                    dry_run=dry_run)
+            con.commit()
+            pag += 1
+            time.sleep(PAUSA_ENTRE_PAGINAS)
+
+    print(f"\nBackfill concluído. Autores pesquisados: {total_pesquisados}. "
+          f"Novos lotes adicionados ao histórico: {total_novos}.")
+
+
+def rotulo_status_colecao(status: str, registro):
+    if status == "desconhecido_novo":
+        return ("🚨 NÃO CONSTA NA SUA LISTA — você não sabia que este "
+                "título existia!")
+    if status == "falta_edicao_conhecida":
+        extra = f" (edição de {registro['ano']})" if registro and registro.get("ano") else ""
+        return f"🔴 FALTA NA COLEÇÃO{extra} — você já conhecia, mas ainda não tem"
+    if status == "ja_tenho_outra_edicao":
+        ano_atual = registro["ano"] if registro else "?"
+        valor = registro.get("valor_pago") if registro else ""
+        extra = f" (comprada por R$ {valor})" if valor else ""
+        return (f"🟡 Você já tem uma edição de {ano_atual}{extra} — "
+                f"esta é de ano diferente, avalie se vale a pena")
+    if status == "ja_tenho_mesma_edicao":
+        return "✅ Você já tem exatamente esta edição"
+    return ""
+
+
+def deve_alertar_colecao(status: str) -> bool:
+    return status != "ja_tenho_mesma_edicao"
+
+
 def enviar_telegram(msg: str, dry_run: bool = False):
     if dry_run or not (TELEGRAM_TOKEN and TELEGRAM_CHAT):
         print("[telegram desativado] " + msg.replace("\n", " | "))
@@ -316,28 +599,47 @@ def enviar_telegram(msg: str, dry_run: bool = False):
         print(f"[aviso] falha no Telegram: {e}", file=sys.stderr)
 
 
-# ----------------------------------------------------------------------------
-# Fluxo principal
-# ----------------------------------------------------------------------------
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--dry-run", action="store_true",
-                    help="não envia Telegram; apenas imprime")
+    ap.add_argument("--dry-run", action="store_true")
+    ap.add_argument("--backfill", action="store_true")
     args = ap.parse_args()
 
     autores = carregar_autores(AUTORES_PATH)
     print(f"Monitorando {len(autores)} autores.")
     con = abrir_db()
     sessao = requests.Session()
+
+    colecao = carregar_colecao(COLECAO_CSV_URL)
+    if COLECAO_CSV_URL:
+        print(f"Coleção carregada: {len(colecao)} autores com referência "
+              f"({'OK' if colecao else 'FALHOU — confira o link'}).")
+    else:
+        print("Comparação com a coleção não configurada (COLECAO_CSV_URL vazio).")
+
+    logado = autenticar(sessao)
+    if LEILOESBR_EMAIL:
+        print(f"Login no LeilõesBR: {'OK' if logado else 'FALHOU'}")
+    else:
+        print("Login não configurado — valores finais de leilões "
+              "encerrados não serão capturados.")
+
+    if args.backfill:
+        rodar_backfill(autores, sessao, con, logado, colecao, dry_run=args.dry_run)
+        exportar_csv(con)
+        con.close()
+        print("Concluído.")
+        return
+
     agora = datetime.now(timezone.utc).isoformat(timespec="seconds")
 
-    # 1) Lotes em andamento -----------------------------------------------
     print("Raspando categoria Livros (em andamento)...")
     lotes = raspar_andamento(sessao)
     print(f"Total de lotes na categoria: {len(lotes)}")
 
     novos_alertas = 0
     descartados_epoca = 0
+    colecao_stats = {}
     for lote in lotes:
         achados = casar_autores(lote["descricao"], autores)
         if not achados:
@@ -345,24 +647,38 @@ def main():
         passa_epoca, anos_str = classificar_epoca(lote["descricao"])
         if not passa_epoca:
             descartados_epoca += 1
-            continue  # edição/reimpressão moderna (ano >= ANO_LIMITE) — ignora
+            continue
         ja_existe = con.execute(
             "SELECT 1 FROM lotes WHERE id=?", (lote["id"],)).fetchone()
         if ja_existe:
             con.execute("UPDATE lotes SET atualizado_em=? WHERE id=?",
                         (agora, lote["id"]))
             continue
+
+        ano = (max(int(a) for a in anos_str.split(", ")) if anos_str != "indefinido" else None)
+        titulo = extrair_titulo(lote["descricao"])
+        texto_comparar = titulo or lote["descricao"]
+        status_col, reg_col = avaliar_contra_colecao(achados[0], texto_comparar, ano, colecao)
+
         con.execute(
-            """INSERT INTO lotes (id, autores, descricao, leiloeiro, uf,
-                                  data_pregao, preco_inicial, url,
-                                  anos_detectados, visto_em, atualizado_em)
-               VALUES (?,?,?,?,?,?,?,?,?,?,?)""",
-            (lote["id"], ", ".join(achados), lote["descricao"],
+            """INSERT INTO lotes (id, autor, titulo, ano, descricao, comentarios,
+                                  status_colecao, leiloeiro, uf, data_pregao,
+                                  preco_inicial, url, visto_em, atualizado_em)
+               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+            (lote["id"], ", ".join(achados), titulo, ano, lote["descricao"],
+             extrair_info_adicional(lote["descricao"], titulo), status_col,
              lote["leiloeiro"], lote["uf"], lote["data_pregao"],
-             lote["preco_inicial"], lote["url"], anos_str, agora, agora))
+             lote["preco_inicial"], lote["url"], agora, agora))
         novos_alertas += 1
+        if colecao_stats is not None:
+            colecao_stats[status_col] = colecao_stats.get(status_col, 0) + 1
+
+        if not deve_alertar_colecao(status_col):
+            continue
+
         aviso_ano = f"\nAno(s) na descrição: {anos_str}" if anos_str != "indefinido" \
             else "\n⚠️ Ano não identificado na descrição — confira manualmente"
+        rotulo_col = rotulo_status_colecao(status_col, reg_col)
         enviar_telegram(
             "📚 Novo lote encontrado!\n"
             f"Autor(es): {', '.join(achados)}\n"
@@ -371,21 +687,23 @@ def main():
             f"Pregão: {lote['data_pregao'] or '?'} ({lote['uf']}) — "
             f"{lote['leiloeiro'] or 'leiloeiro n/d'}"
             f"{aviso_ano}\n"
-            f"{lote['url']}",
+            + (f"{rotulo_col}\n" if rotulo_col else "")
+            + f"{lote['url']}",
             dry_run=args.dry_run)
     con.commit()
     print(f"Novos lotes com autores da lista: {novos_alertas}")
     print(f"Descartados por serem edição >= {ANO_LIMITE}: {descartados_epoca}")
+    if colecao_stats:
+        print("Por situação na coleção:", colecao_stats)
 
-    # 2) Captura de valores finais ----------------------------------------
     print("Verificando lotes pendentes de valor final...")
     pendentes = con.execute(
-        "SELECT id, url, autores FROM lotes WHERE status='em_andamento'"
+        "SELECT id, url, autor FROM lotes WHERE status='em_andamento'"
     ).fetchall()
     ids_ativos = {l["id"] for l in lotes}
     for id_, url, aut in pendentes:
         if id_ in ids_ativos:
-            continue  # ainda em andamento
+            continue
         valor, status = buscar_valor_final(sessao, url)
         time.sleep(PAUSA_ENTRE_PAGINAS)
         if status:
@@ -397,13 +715,11 @@ def main():
                     f"🔨 Arrematado — {aut}\nValor final: R$ {valor}\n{url}",
                     dry_run=args.dry_run)
         else:
-            # some do catálogo sem página acessível: marca como encerrado s/ dado
             con.execute(
                 "UPDATE lotes SET status='encerrado_sem_dado', atualizado_em=? "
                 "WHERE id=?", (agora, id_))
     con.commit()
 
-    # 3) Planilha -----------------------------------------------------------
     exportar_csv(con)
     con.close()
     print("Concluído.")
