@@ -2,6 +2,7 @@ name: monitor-leiloes
 
 on:
   schedule:
+    # 00:00 e 12:00 UTC = 21h e 09h no horário de Brasília
     - cron: "0 0,12 * * *"
   workflow_dispatch:
     inputs:
@@ -13,6 +14,14 @@ on:
         options:
           - "true"
           - "false"
+      modo:
+        description: "Modo de execução"
+        required: false
+        default: "diario"
+        type: choice
+        options:
+          - "diario"
+          - "backfill"
 
 permissions:
   contents: write
@@ -36,8 +45,13 @@ jobs:
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          LEILOESBR_EMAIL: ${{ secrets.LEILOESBR_EMAIL }}
+          LEILOESBR_SENHA: ${{ secrets.LEILOESBR_SENHA }}
+          COLECAO_CSV_URL: ${{ secrets.COLECAO_CSV_URL }}
         run: |
-          python monitor_leiloes.py ${{ github.event.inputs.dry_run == 'true' && '--dry-run' || '' }}
+          python monitor_leiloes.py \
+            ${{ github.event.inputs.dry_run == 'true' && '--dry-run' || '' }} \
+            ${{ github.event.inputs.modo == 'backfill' && '--backfill' || '' }}
 
       - name: Salvar banco de dados e planilha atualizados
         run: |
