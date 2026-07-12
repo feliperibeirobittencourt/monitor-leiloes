@@ -35,6 +35,7 @@ from urllib.parse import quote
 import requests
 from bs4 import BeautifulSoup
 from playwright.sync_api import sync_playwright
+from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
 
 # ----------------------------------------------------------------------------
 # Configuração
@@ -437,6 +438,14 @@ def carregar_colecao(url: str) -> dict:
         return None
 
     i_autor = idx("autores", "autor")
+    if i_autor is None:
+        # Na sua planilha real, a coluna do nome do autor não tem
+        # cabeçalho (célula em branco) — mas vem sempre logo depois da
+        # coluna "CADEIRA". Usa isso como âncora para achá-la mesmo sem
+        # nome de coluna.
+        i_cadeira = idx("cadeira")
+        if i_cadeira is not None and i_cadeira + 1 < len(cabecalho):
+            i_autor = i_cadeira + 1
     i_titulo = idx("titulo")
     i_tenho = idx("tenho")
     i_ano = idx("ano")
@@ -667,7 +676,15 @@ def buscar_pagina_renderizada(navegador, url: str, timeout_ms: int = 40000) -> s
     """
     pagina = navegador.new_page()
     try:
-        pagina.goto(url, timeout=timeout_ms, wait_until="networkidle")
+        try:
+            pagina.goto(url, timeout=timeout_ms, wait_until="networkidle")
+        except PlaywrightTimeoutError:
+            # Algumas páginas nunca "acalmam" de vez (anúncios, rastreadores
+            # que ficam pedindo coisa sem parar) — tenta de novo com uma
+            # condição mais simples antes de desistir da página.
+            print(f"  [aviso] rede não ficou parada em 40s, tentando de novo "
+                  f"com condição mais simples: {url}", file=sys.stderr)
+            pagina.goto(url, timeout=timeout_ms, wait_until="load")
         pagina.wait_for_timeout(600)
 
         posicao = 0
@@ -902,13 +919,23 @@ def rodar_backfill(autores, sessao, con, logado, colecao, dry_run=False):
                 print(f"[{total_pesquisados}/{len(autores)}] Buscando: {nome}", flush=True)
                 pag = 1
                 vistos_ids = set()
+                falhas_seguidas = 0
                 while pag <= MAX_PAGINAS:
                     url = (f"{BASE}/busca_finalizado.asp?pesquisa={quote(nome)}"
                            f"&tp=|&op=2&v=126&pag={pag}")
                     html = buscar_pagina_renderizada(navegador, url)
                     time.sleep(PAUSA_ENTRE_PAGINAS)
                     if not html:
-                        break
+                        falhas_seguidas += 1
+                        if falhas_seguidas >= 3:
+                            print(f"  [aviso] 3 falhas seguidas — desistindo "
+                                  f"deste autor por ora.", flush=True)
+                            break
+                        print(f"  [aviso] falha na página {pag} — pulando "
+                              f"e tentando a próxima.", flush=True)
+                        pag += 1
+                        continue
+                    falhas_seguidas = 0
                     lotes = extrair_lotes(html)
                     lotes_novos_pagina = [l for l in lotes if l["id"] not in vistos_ids]
                     if not lotes_novos_pagina:
