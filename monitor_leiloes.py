@@ -92,6 +92,19 @@ VARIANTES = {
     "Gregório de Matos": ["Gregorio de Mattos"],
     "Martins Pena": ["Martins Penna"],
     "Julia Lopes de Almeida": ["Júlia Lopes de Almeida"],
+    # Variantes de grafia pré-reforma ortográfica (comuns em catálogos de
+    # leilão antigos) e um caso de pseudônimo/título nobiliárquico,
+    # pesquisadas e confirmadas — mas não é uma auditoria exaustiva dos
+    # 81 nomes; adicione mais aqui se notar outras.
+    "Franklin Dória": ["Barão de Loreto"],
+    "Coelho Neto": ["Coelho Netto"],
+    "Sílvio Romero": ["Sylvio Romero"],
+    "Artur Azevedo": ["Arthur Azevedo"],
+    "Artur de Oliveira": ["Arthur de Oliveira"],
+    "Clóvis Beviláqua": ["Clóvis Bevilacqua", "Clovis Bevilaqua"],
+    "Teófilo Dias": ["Theophilo Dias"],
+    "Tomás Antônio Gonzaga": ["Thomaz Antonio Gonzaga"],
+    "Joaquim Manuel de Macedo": ["Joaquim Manoel de Macedo"],
 }
 
 
@@ -342,6 +355,17 @@ def extrair_titulo(descricao: str) -> str:
         if 3 <= len(candidato) <= 120:
             return candidato
 
+    # "TÍTULO, de Fulano, ..." ou "Título por Fulano, ..." — comum em
+    # descrições mais simples. Verificado antes do padrão "Autor, Título,
+    # Ano" abaixo, que é ambíguo e não reconhece a palavra "de"/"por".
+    m = re.match(r'^([^,]{3,60}),\s*(?:de|por)\s+.+', txt, re.IGNORECASE)
+    if not m:
+        m = re.match(r'^(.{3,60}?)\s+(?:de|por)\s+[A-ZÀ-Ú].+', txt)
+    if m:
+        candidato = m.group(1).strip(" .,-–")
+        if 3 <= len(candidato) <= 120:
+            return candidato
+
     m = re.match(r'^[^,]{3,40},\s*(.+?),\s*\d{4}', txt)
     if m:
         candidato = m.group(1).strip(" .,-–")
@@ -381,6 +405,31 @@ STOPWORDS_TITULO = {
 }
 
 
+RE_TITULO_ANO_FINAL = re.compile(r",?\s*\(?\b(1[5-9]\d{2}|20[0-2]\d)\)?\.?\s*$")
+
+
+def limpar_titulo_colecao(titulo: str) -> str:
+    """
+    Muitas linhas da planilha de coleção têm o ano da edição colado no
+    final do título (ex.: 'Carícia, botânica amorosa, 1895.'). Isso
+    atrapalha a comparação de similaridade com o texto do leilão, que
+    quase nunca tem esse mesmo ano solto do mesmo jeito. Remove esse
+    sufixo quando reconhecido; se não achar nada pra remover, devolve o
+    título original sem mudança.
+    """
+    sem_ano = RE_TITULO_ANO_FINAL.sub("", titulo.strip()).strip().rstrip(",").strip()
+    return sem_ano or titulo.strip()
+
+
+def _stem_titulo(palavra: str) -> str:
+    """Normalização bem simples de plural em português (ex.: 'caricias'
+    -> 'caricia'), só para a comparação de similaridade não falhar por
+    causa de singular/plural."""
+    if len(palavra) > 4 and palavra.endswith("s"):
+        return palavra[:-1]
+    return palavra
+
+
 def similaridade_titulos(a: str, b: str) -> float:
     """
     Similaridade grosseira entre um título/descrição de leilão e uma
@@ -390,8 +439,12 @@ def similaridade_titulos(a: str, b: str) -> float:
     Não é uma correspondência exata: obras com título muito genérico
     podem gerar falsos positivos/negativos ocasionais.
     """
-    wa = {w for w in normalizar(a).split() if len(w) > 2 and w not in STOPWORDS_TITULO}
-    wb = {w for w in normalizar(b).split() if len(w) > 2 and w not in STOPWORDS_TITULO}
+    def tokens(s):
+        return {
+            _stem_titulo(w) for w in normalizar(s).split()
+            if len(w) > 2 and w not in STOPWORDS_TITULO and not w.isdigit()
+        }
+    wa, wb = tokens(a), tokens(b)
     if not wa or not wb:
         return 0.0
     inter = wa & wb
@@ -468,7 +521,7 @@ def carregar_colecao(url: str) -> dict:
         if not autor or not titulo:
             continue
         registro = {
-            "titulo": titulo,
+            "titulo": limpar_titulo_colecao(titulo),
             "tenho": (linha[i_tenho].strip().upper() == "TENHO"
                       if i_tenho is not None and i_tenho < len(linha) else False),
             "ano": para_ano(linha[i_ano]) if i_ano is not None and i_ano < len(linha) else None,
