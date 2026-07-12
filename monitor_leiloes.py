@@ -663,29 +663,34 @@ def buscar_pagina_renderizada(navegador, url: str, timeout_ms: int = 40000) -> s
     Abre a URL num navegador headless (Chromium via Playwright) e devolve
     o HTML já processado pelo JavaScript da página.
 
-    Necessário porque descobrimos que o valor "Vendido por: R$ X" nas
-    buscas de leilões finalizados só aparece depois que o JavaScript da
+    O valor "Vendido por: R$ X" só aparece depois que o JavaScript da
     própria página carrega essa informação — uma busca simples (sem
-    navegador) nunca vê esse valor, mesmo logado.
+    navegador) nunca vê esse valor.
 
-    Além disso, o carregamento do preço parece ser "preguiçoso" (lazy
-    loading): só dispara quando o item aparece na área visível da tela.
-    Por isso a página é rolada até o fim em incrementos pequenos — pular
-    direto pro final faz os itens do meio nunca passarem pela tela e
-    ficarem sem preço.
+    Em vez de adivinhar quanto tempo esperar (o que se mostrou pouco
+    confiável — confirmado com dados reais que vieram sem nenhum valor),
+    a página espera ATIVAMENTE até o texto "Vendido por" aparecer em
+    algum lugar do conteúdo, ou desiste depois de um tempo limite. A
+    rolagem é mantida como reforço extra, caso alguma página específica
+    ainda dependa disso.
     """
     pagina = navegador.new_page()
     try:
         try:
-            pagina.goto(url, timeout=timeout_ms, wait_until="networkidle")
+            pagina.goto(url, timeout=timeout_ms, wait_until="domcontentloaded")
         except PlaywrightTimeoutError:
-            # Algumas páginas nunca "acalmam" de vez (anúncios, rastreadores
-            # que ficam pedindo coisa sem parar) — tenta de novo com uma
-            # condição mais simples antes de desistir da página.
-            print(f"  [aviso] rede não ficou parada em 40s, tentando de novo "
-                  f"com condição mais simples: {url}", file=sys.stderr)
-            pagina.goto(url, timeout=timeout_ms, wait_until="load")
-        pagina.wait_for_timeout(600)
+            print(f"  [aviso] timeout ao carregar a página: {url}", file=sys.stderr)
+            return ""
+
+        try:
+            pagina.wait_for_function(
+                "document.body && document.body.innerText.includes('Vendido por')",
+                timeout=15000,
+            )
+        except PlaywrightTimeoutError:
+            # Pode ser que a página realmente não tenha nenhum item vendido
+            # nela — segue em frente mesmo assim, sem travar o backfill.
+            pass
 
         posicao = 0
         for _ in range(60):  # trava de segurança para páginas muito longas
@@ -695,9 +700,8 @@ def buscar_pagina_renderizada(navegador, url: str, timeout_ms: int = 40000) -> s
                 break
             posicao += altura_janela
             pagina.evaluate(f"window.scrollTo(0, {posicao})")
-            pagina.wait_for_timeout(250)
-        pagina.evaluate("window.scrollTo(0, document.body.scrollHeight)")
-        pagina.wait_for_timeout(1000)  # margem final para o último lote carregar
+            pagina.wait_for_timeout(200)
+        pagina.wait_for_timeout(600)
 
         return pagina.content()
     except Exception as e:
