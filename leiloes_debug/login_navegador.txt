@@ -1,0 +1,3 @@
+
+===== 2026-07-12T12:27:16.536908+00:00 =====
+resultado: LOGADO | 'sair' no html: True | cookies: 8

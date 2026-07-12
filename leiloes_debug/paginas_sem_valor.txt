@@ -1,0 +1,67 @@
+
+===== 2026-07-12T12:28:26.611512+00:00 =====
+URL: https://www.leiloesbr.com.br/busca_finalizado.asp?pesquisa=Olavo%20Bilac&tp=|&op=2&v=126&pag=7
+'Vendido por' no DOM: NAO
+capturas de rede com valor: 0
+
+--- HTML final (trecho do meio) ---
+   
+                  </li>
+                </ul></li></ul>
+                <div class="sub-menu-container mega-menu-column border-start-0 is-tipwrap is-cat-5" style="position: absolute; top: 0px; right: 0px; left: auto; z-index: 5; padding: 0px;">
+
+                  <div class="is-tipwrap-img-final rounded" style="position: absolute; width: 300px; height: 400px; top: 0px; right: 20px; z-index: 5;">
+                    <img onerror="semImagem(this)" src="https://d1o6h00a1h5k7q.cloudfront.net/imagens/img_m/63451/31562227.jpg" loading="lazy" height="300px" width="400px" style="object-fit:cover;">
+                  </div>
+
+                </div>
+              </div>
+            </div>
+          </div>
+    
+    <button class="sub-menu-trigger icon-chevron-right"></button></li>
+    
+      <li class="menu-item mega-menu sub-menu" data-categoria="8" data-tipos="8|12">
+      
+        <a href="javascript:;" class="menu-link"><div>Cristais<i class="icon-angle-down"></i></div></a>
+          <div class="mega-menu-content mega-menu-style-2 px-0" style="width: auto;">
+            <div class="container" style="">
+              <div class="row">
+                <div class="sub-menu-container mega-menu-column border-start-0 col-12 pb-0 pt-4" style="">
+                  <div class="menu-item mega-menu-title sub-menu is-tiptitle" style="">
+                    <a class="menu-link" href="javascript:;"><div>Cristais</div></a>
+                    <a class="menu-close" href="#"><i class="icon-line-cross"></i></a>
+                  </div>
+                </div>
+              </div>
+              <div class="row" style="padding-right:320px; position:relative; flex-wrap:nowrap; min-height:430px;">
+                <ul class="sub-menu-container mega-menu-column border-start-0 col is-tipwrap-list" style=""><li class="menu-item mega-menu-title sub-menu" style=""><ul class="sub-menu-container" style="">
+                  <li class="menu-item" data-tipo="8" style="">
+                  <a href="busca_andamento.asp?pesquisa=&amp;gbl=0&amp;tp=|4372697374616973|" class="menu-link"><div>Cristais</div></a>
+                  
+                  </li>
+                
+                  <li class="menu-item" data-tipo="12" style="">
+                  <a href="busca_andamento.asp?pesquisa=&amp;gbl=0&amp;tp=|4C757374726573|" class="menu-link"><div>Lustres</div></a>
+                  
+                  </li>
+                </ul></li></ul>
+                <div class="sub-menu-container mega-menu-column border-start-0 is-tipwrap is-cat-6" style="position: absolute; top: 0px; right: 0px; left: auto; z-index: 5; padding: 0px;">
+
+                  <div class="is-tipwrap-img-final rounded" style="position: absolute; width: 300px; height: 400px; top: 0px; right: 20px; z-index: 5;">
+                    <img onerror="semImagem(this)" src="https://d1o6h00a1h5k7q.cloudfront.net/imagens/img_m/63282/31552923.jpg" loading="lazy" height="300px" width="400px" style="object-fit:cover;">
+                  </div>
+
+                </div>
+              </div>
+            </div>
+          </div>
+    
+    <button class="sub-menu-trigger icon-chevron-right"></button></li>
+    
+      <li class="menu-item mega-menu sub-menu" data-categoria="9" data-tipos="4|5">
+      
+        <a href="javascript:;" class="menu-link"><div>Esculturas<i class="icon-angle-down"></i></div></a>
+          <div class="mega-menu-content mega-menu-style-2 px-0" style="width: auto;">
+            <div class="container" style="">
+     
