@@ -2,18 +2,21 @@ name: monitor-leiloes
 
 on:
   schedule:
-    # 00:00 e 12:00 UTC = 21h e 09h no horário de Brasília
-    - cron: "0 0,12 * * *"
+    # 12h e 18h no horário de Brasília
+    - cron: "0 12,18 * * *"
+      timezone: "America/Sao_Paulo"
+
   workflow_dispatch:
     inputs:
       dry_run:
         description: "Rodar em modo teste (sem enviar Telegram)?"
         required: false
-        default: "true"
+        default: "false"
         type: choice
         options:
           - "true"
           - "false"
+
       modo:
         description: "Modo de execução"
         required: false
@@ -29,6 +32,7 @@ permissions:
 jobs:
   rodar:
     runs-on: ubuntu-latest
+
     steps:
       - name: Baixar os arquivos do repositório
         uses: actions/checkout@v4
@@ -51,10 +55,21 @@ jobs:
           LEILOESBR_EMAIL: ${{ secrets.LEILOESBR_EMAIL }}
           LEILOESBR_SENHA: ${{ secrets.LEILOESBR_SENHA }}
           COLECAO_CSV_URL: ${{ secrets.COLECAO_CSV_URL }}
+
         run: |
-          python monitor_leiloes.py \
-            ${{ github.event.inputs.dry_run == 'true' && '--dry-run' || '' }} \
-            ${{ github.event.inputs.modo == 'backfill' && '--backfill' || '' }}
+          EXTRA_ARGS=""
+
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            if [ "${{ inputs.dry_run }}" = "true" ]; then
+              EXTRA_ARGS="$EXTRA_ARGS --dry-run"
+            fi
+
+            if [ "${{ inputs.modo }}" = "backfill" ]; then
+              EXTRA_ARGS="$EXTRA_ARGS --backfill"
+            fi
+          fi
+
+          python monitor_leiloes.py $EXTRA_ARGS
 
       - name: Salvar banco de dados e planilha atualizados
         run: |
