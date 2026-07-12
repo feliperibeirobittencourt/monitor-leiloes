@@ -711,52 +711,235 @@ def buscar_valor_final(sessao: requests.Session, url_lote: str):
     return None, None
 
 
-def buscar_pagina_renderizada(navegador, url: str, timeout_ms: int = 40000) -> str:
-    """
-    Abre a URL num navegador headless (Chromium via Playwright) e devolve
-    o HTML já processado pelo JavaScript da página.
+DEBUG_DIR = "leiloes_debug"
+_debug_registros_no_run = 0
 
-    O valor "Vendido por: R$ X" só aparece depois que o JavaScript da
-    própria página carrega essa informação — uma busca simples (sem
-    navegador) nunca vê esse valor.
 
-    Em vez de adivinhar quanto tempo esperar (o que se mostrou pouco
-    confiável — confirmado com dados reais que vieram sem nenhum valor),
-    a página espera ATIVAMENTE até o texto "Vendido por" aparecer em
-    algum lugar do conteúdo, ou desiste depois de um tempo limite. A
-    rolagem é mantida como reforço extra, caso alguma página específica
-    ainda dependa disso.
+def registrar_debug(nome: str, texto: str, limite_por_run: int = 6):
     """
-    pagina = navegador.new_page()
+    Grava informações de diagnóstico em leiloes_debug/<nome>.txt, que o
+    workflow commita junto com o banco. Serve para descobrirmos o que o
+    robô realmente viu em produção quando algo falha — em vez de ficarmos
+    adivinhando. Limitado a poucos registros por execução para o arquivo
+    não explodir de tamanho.
+    """
+    global _debug_registros_no_run
+    if _debug_registros_no_run >= limite_por_run:
+        return
+    _debug_registros_no_run += 1
+    try:
+        os.makedirs(DEBUG_DIR, exist_ok=True)
+        caminho = os.path.join(DEBUG_DIR, f"{nome}.txt")
+        with open(caminho, "a", encoding="utf-8") as f:
+            f.write(f"\n===== {datetime.now(timezone.utc).isoformat()} =====\n")
+            f.write(texto[:20000])
+            f.write("\n")
+    except Exception:
+        pass
+
+
+def criar_contexto_navegador(navegador):
+    """
+    Cria um contexto de navegador que se apresenta como um Chrome comum
+    de desktop, em vez de "HeadlessChrome". Alguns sites servem conteúdo
+    diferente (ou omitem dados) para navegadores que se identificam como
+    automatizados; isto remove os sinais mais óbvios.
+    """
+    contexto = navegador.new_context(
+        user_agent=("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+                    "AppleWebKit/537.36 (KHTML, like Gecko) "
+                    "Chrome/126.0.0.0 Safari/537.36"),
+        locale="pt-BR",
+        viewport={"width": 1366, "height": 900},
+    )
+    contexto.add_init_script(
+        "Object.defineProperty(navigator, 'webdriver', {get: () => undefined})"
+    )
+    return contexto
+
+
+def logar_navegador(contexto) -> bool:
+    """
+    Faz login no LeilõesBR DENTRO do navegador Playwright.
+
+    Por que isso importa: o site esconde o valor "Vendido por" de quem
+    não está logado, e até agora o login era feito só na sessão requests
+    — que NÃO compartilha cookies com o navegador. Ou seja, o navegador
+    sempre visitou as páginas como visitante anônimo. Esta função corrige
+    esse furo, logando no próprio navegador que fará as buscas.
+
+    Implementação defensiva: procura o formulário de login de algumas
+    formas diferentes e registra em leiloes_debug/ o que encontrou, para
+    diagnóstico caso não funcione.
+    """
+    if not (LEILOESBR_EMAIL and LEILOESBR_SENHA):
+        registrar_debug("login_navegador", "sem credenciais no ambiente")
+        return False
+    pagina = contexto.new_page()
+    try:
+        pagina.goto(f"{BASE}/default.asp", timeout=40000,
+                    wait_until="domcontentloaded")
+        pagina.wait_for_timeout(1500)
+
+        # O login fica num modal aberto pelo link "Login" do topo.
+        try:
+            pagina.click("text=Login", timeout=5000)
+            pagina.wait_for_timeout(1200)
+        except Exception:
+            pass
+
+        campo_senha = None
+        for tentativa in range(2):
+            campo_senha = pagina.query_selector("input[type=password]")
+            if campo_senha:
+                break
+            # Fallback: tenta páginas dedicadas de login comuns em ASP.
+            for cand in ("/login_site.asp", "/login.asp", "/minha_conta.asp"):
+                try:
+                    pagina.goto(f"{BASE}{cand}", timeout=25000,
+                                wait_until="domcontentloaded")
+                    pagina.wait_for_timeout(1000)
+                    campo_senha = pagina.query_selector("input[type=password]")
+                    if campo_senha:
+                        break
+                except Exception:
+                    continue
+            break
+
+        if not campo_senha:
+            registrar_debug(
+                "login_navegador",
+                "campo de senha não encontrado.\nHTML (início):\n"
+                + pagina.content()[:4000])
+            return False
+
+        campo_email = pagina.query_selector("input[type=email]")
+        if not campo_email:
+            for inp in pagina.query_selector_all(
+                    "input[type=text], input:not([type])"):
+                atributos = " ".join(filter(None, (
+                    inp.get_attribute("name"), inp.get_attribute("id"),
+                    inp.get_attribute("placeholder"))))
+                if re.search(r"mail|login|usu", atributos or "", re.I):
+                    campo_email = inp
+                    break
+        if not campo_email:
+            registrar_debug("login_navegador",
+                            "campo de e-mail não encontrado perto da senha")
+            return False
+
+        campo_email.fill(LEILOESBR_EMAIL)
+        campo_senha.fill(LEILOESBR_SENHA)
+        campo_senha.press("Enter")
+        pagina.wait_for_timeout(3500)
+
+        # Critério de sucesso: depois de recarregar a home, aparece algum
+        # indício de sessão ativa ("Sair" / "Minha conta" sem "cadastre").
+        try:
+            pagina.goto(f"{BASE}/default.asp", timeout=30000,
+                        wait_until="domcontentloaded")
+            pagina.wait_for_timeout(1000)
+        except Exception:
+            pass
+        corpo = (pagina.content() or "").lower()
+        logado = ("sair" in corpo) or ("logout" in corpo)
+        registrar_debug(
+            "login_navegador",
+            f"resultado: {'LOGADO' if logado else 'NAO LOGADO'} | "
+            f"'sair' no html: {'sair' in corpo} | "
+            f"cookies: {len(contexto.cookies())}")
+        return logado
+    except Exception as e:
+        registrar_debug("login_navegador", f"exceção: {e}")
+        return False
+    finally:
+        pagina.close()
+
+
+def buscar_pagina_renderizada(contexto, url: str, timeout_ms: int = 40000) -> str:
+    """
+    Abre a URL num navegador (contexto Playwright, idealmente já logado)
+    e devolve o HTML processado pelo JavaScript da página.
+
+    DESCOBERTA IMPORTANTE (verificada lendo o HTML real que o servidor
+    entrega): a página de busca de finalizados NÃO traz nenhum valor no
+    HTML do servidor — o "Vendido por: R$ X" chega depois, por uma
+    chamada separada do JavaScript, e o site esconde esse dado de quem
+    não está logado.
+
+    Estratégia em camadas:
+      1. Espera ativa pelo texto 'endido por' no conteúdo (até 15s).
+      2. INTERCEPTAÇÃO DE REDE: além de olhar o HTML final, captura as
+         respostas das chamadas internas da página que contenham valores.
+         Mesmo que o navegador não desenhe o valor na tela, se o dado
+         trafegou, nós o pegamos direto da fonte.
+      3. Se ainda assim nenhum valor aparecer, grava um relatório em
+         leiloes_debug/ com o que a página trafegou — para diagnóstico
+         definitivo em produção.
+    """
+    pagina = contexto.new_page()
+    capturas_rede = []
+
+    def ao_responder(resposta):
+        try:
+            if resposta.request.resource_type not in (
+                    "xhr", "fetch", "document", "script"):
+                return
+            ct = (resposta.headers or {}).get("content-type", "")
+            if not any(t in ct for t in ("text", "json", "javascript", "html")):
+                return
+            corpo = resposta.text()
+            if corpo and re.search(r"endido por|arrematad", corpo, re.I):
+                capturas_rede.append((resposta.url, corpo))
+        except Exception:
+            pass
+
+    pagina.on("response", ao_responder)
     try:
         try:
             pagina.goto(url, timeout=timeout_ms, wait_until="domcontentloaded")
         except PlaywrightTimeoutError:
-            print(f"  [aviso] timeout ao carregar a página: {url}", file=sys.stderr)
+            print(f"  [aviso] timeout ao carregar a página: {url}",
+                  file=sys.stderr)
             return ""
 
         try:
             pagina.wait_for_function(
-                "document.body && document.body.innerText.includes('Vendido por')",
+                "document.body && /endido por/i.test(document.body.innerText)",
                 timeout=15000,
             )
         except PlaywrightTimeoutError:
-            # Pode ser que a página realmente não tenha nenhum item vendido
-            # nela — segue em frente mesmo assim, sem travar o backfill.
+            pass  # pode não haver nenhum vendido na página; seguimos
+
+        # Rolagem leve como reforço (barata; cobre lazy loading residual)
+        try:
+            pagina.evaluate("window.scrollTo(0, document.body.scrollHeight)")
+            pagina.wait_for_timeout(800)
+        except Exception:
             pass
 
-        posicao = 0
-        for _ in range(60):  # trava de segurança para páginas muito longas
-            altura_total = pagina.evaluate("document.body.scrollHeight")
-            altura_janela = pagina.evaluate("window.innerHeight")
-            if posicao >= altura_total - altura_janela:
-                break
-            posicao += altura_janela
-            pagina.evaluate(f"window.scrollTo(0, {posicao})")
-            pagina.wait_for_timeout(200)
-        pagina.wait_for_timeout(600)
+        html = pagina.content() or ""
 
-        return pagina.content()
+        # Anexa fragmentos capturados da rede que contenham cards com
+        # valores (o extrator de lotes varre tudo; a consolidação por id
+        # depois prefere a versão com preço).
+        fragmentos_uteis = [c for (u, c) in capturas_rede
+                            if "abre_catalogo" in c]
+        if fragmentos_uteis:
+            html += ("\n<div id='capturas_rede_monitor'>"
+                     + "\n".join(fragmentos_uteis) + "</div>")
+
+        if "endido por" not in html.lower() and "busca_finalizado" in url:
+            resumo = [f"URL: {url}",
+                      f"'Vendido por' no DOM: NAO",
+                      f"capturas de rede com valor: {len(capturas_rede)}"]
+            for u, c in capturas_rede[:3]:
+                resumo.append(f"\n--- resposta de {u} (inicio) ---\n{c[:2500]}")
+            resumo.append("\n--- HTML final (trecho do meio) ---\n"
+                          + html[len(html)//3: len(html)//3 + 3500])
+            registrar_debug("paginas_sem_valor", "\n".join(resumo))
+
+        return html
     except Exception as e:
         print(f"  [aviso] falha ao renderizar página: {e}", file=sys.stderr)
         return ""
@@ -970,6 +1153,13 @@ def rodar_backfill(autores, sessao, con, logado, colecao, dry_run=False):
 
     with sync_playwright() as p:
         navegador = p.chromium.launch()
+        contexto = criar_contexto_navegador(navegador)
+        # Login DENTRO do navegador (o site esconde "Vendido por" de quem
+        # não está logado; a sessão requests não vale aqui).
+        logado_navegador = logar_navegador(contexto)
+        print(f"Login no navegador (necessário para ver 'Vendido por'): "
+              f"{'OK' if logado_navegador else 'FALHOU — valores de venda '
+              'podem não aparecer; veja leiloes_debug/'}", flush=True)
         try:
             for nome, _ in autores:
                 total_pesquisados += 1
@@ -980,7 +1170,7 @@ def rodar_backfill(autores, sessao, con, logado, colecao, dry_run=False):
                 while pag <= MAX_PAGINAS:
                     url = (f"{BASE}/busca_finalizado.asp?pesquisa={quote(nome)}"
                            f"&tp=|&op=2&v=126&pag={pag}")
-                    html = buscar_pagina_renderizada(navegador, url)
+                    html = buscar_pagina_renderizada(contexto, url)
                     time.sleep(PAUSA_ENTRE_PAGINAS)
                     if not html:
                         falhas_seguidas += 1
@@ -994,6 +1184,17 @@ def rodar_backfill(autores, sessao, con, logado, colecao, dry_run=False):
                         continue
                     falhas_seguidas = 0
                     lotes = extrair_lotes(html)
+                    # Consolida duplicatas por id preferindo a versão COM
+                    # preço: o mesmo lote pode aparecer duas vezes quando o
+                    # valor veio pela interceptação de rede e não pelo DOM.
+                    por_id = {}
+                    for l in lotes:
+                        existente = por_id.get(l["id"])
+                        if existente is None or (
+                                not existente.get("preco_inicial")
+                                and l.get("preco_inicial")):
+                            por_id[l["id"]] = l
+                    lotes = list(por_id.values())
                     lotes_novos_pagina = [l for l in lotes if l["id"] not in vistos_ids]
                     if not lotes_novos_pagina:
                         break  # página vazia OU repetindo resultados já vistos — encerra
@@ -1097,6 +1298,10 @@ def rodar_backfill(autores, sessao, con, logado, colecao, dry_run=False):
                         break
                     pag += 1
         finally:
+            try:
+                contexto.close()
+            except Exception:
+                pass
             navegador.close()
 
     print(f"\nBackfill concluído. Autores pesquisados: {total_pesquisados}. "
@@ -1104,6 +1309,27 @@ def rodar_backfill(autores, sessao, con, logado, colecao, dry_run=False):
     print(f"Descartados por não parecerem livros (moeda/selo/medalha): "
           f"{descartados_nao_livro}")
     print("Por situação na coleção:", stats)
+
+    # Resumo de diagnóstico da captura de valores — commitado no repo,
+    # para conferirmos rapidamente se a captura funcionou de verdade.
+    try:
+        com_valor, sem_valor = con.execute(
+            "SELECT SUM(CASE WHEN valor_final IS NOT NULL AND valor_final != '' "
+            "THEN 1 ELSE 0 END), "
+            "SUM(CASE WHEN valor_final IS NULL OR valor_final = '' "
+            "THEN 1 ELSE 0 END) "
+            "FROM lotes WHERE status != 'em_andamento'").fetchone()
+        os.makedirs(DEBUG_DIR, exist_ok=True)
+        with open(os.path.join(DEBUG_DIR, "resumo_valores.txt"), "w",
+                  encoding="utf-8") as f:
+            f.write(
+                f"Última execução do backfill: "
+                f"{datetime.now(timezone.utc).isoformat(timespec='seconds')}\n"
+                f"Login no navegador: {'OK' if logado_navegador else 'FALHOU'}\n"
+                f"Lotes históricos COM valor final: {com_valor or 0}\n"
+                f"Lotes históricos SEM valor final: {sem_valor or 0}\n")
+    except Exception:
+        pass
 
     resumo = (
         f"📚 Backfill concluído!\n"
