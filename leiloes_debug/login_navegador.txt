@@ -1,3 +1,6 @@
 
 ===== 2026-07-12T12:27:16.536908+00:00 =====
 resultado: LOGADO | 'sair' no html: True | cookies: 8
+
+===== 2026-07-12T14:28:37.086487+00:00 =====
+resultado: LOGADO | 'sair' no html: True | cookies: 8

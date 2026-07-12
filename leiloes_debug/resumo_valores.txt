@@ -1,4 +1,4 @@
-Última execução do backfill: 2026-07-12T12:28:29+00:00
+Última execução do backfill: 2026-07-12T15:24:54+00:00
 Login no navegador: OK
-Lotes históricos COM valor final: 340
+Lotes históricos COM valor final: 3427
 Lotes históricos SEM valor final: 0

@@ -65,3 +65,324 @@ capturas de rede com valor: 0
           <div class="mega-menu-content mega-menu-style-2 px-0" style="width: auto;">
             <div class="container" style="">
      
+
+===== 2026-07-12T14:29:03.273754+00:00 =====
+URL: https://www.leiloesbr.com.br/busca_finalizado.asp?pesquisa=Adelino%20Fontoura&tp=|&op=2&v=126&pag=2
+'Vendido por' no DOM: NAO
+capturas de rede com valor: 0
+
+--- HTML final (trecho do meio) ---
+k"><div>Canetas</div></a>
+                  
+                  </li>
+                
+                  <li class="menu-item" data-tipo="23" style="">
+                  <a href="busca_andamento.asp?pesquisa=&amp;gbl=0&amp;tp=|436172746F66696C6961|" class="menu-link"><div>Cartofilia</div></a>
+                  
+                  </li>
+                
+                  <li class="menu-item" data-tipo="28" style="">
+                  <a href="busca_andamento.asp?pesquisa=&amp;gbl=0&amp;tp=|436172746F677261666961|" class="menu-link"><div>Cartografia</div></a>
+                  
+                  </li>
+                
+                  <li class="menu-item" data-tipo="175" style="">
+                  <a href="busca_andamento.asp?pesquisa=&amp;gbl=0&amp;tp=|436861766569726F73|" class="menu-link"><div>Chaveiros</div></a>
+                  
+                  </li>
+                
+                  <li class="menu-item" data-tipo="32" style="">
+                  <a href="busca_andamento.asp?pesquisa=&amp;gbl=0&amp;tp=|43696E656D61|" class="menu-link"><div>Cinema</div></a>
+                  
+                  </li>
+                
+                  <li class="menu-item" data-tipo="19" style="">
+                  <a href="busca_andamento.asp?pesquisa=&amp;gbl=0&amp;tp=|436F6C6563696F6E69736D6F|" class="menu-link"><div>Colecionismo</div></a>
+                  
+                  </li>
+                
+                  <li class="menu-item" data-tipo="177" style="">
+                  <a href="busca_andamento.asp?pesquisa=&amp;gbl=0&amp;tp=|437572696F736964616465|" class="menu-link"><div>Curiosidade</div></a>
+                  
+                  </li>
+                
+                  <li class="menu-item" data-tipo="138" style="">
+                  <a href="busca_andamento.asp?pesquisa=&amp;gbl=0&amp;tp=|437574656C61726961202F204661636173|" class="menu-link"><div>Cutelaria / Facas</div></a>
+                  
+                  </li>
+                </ul></li></ul><ul class="sub-menu-container mega-menu-column border-start-0 col is-tipwrap-list" style=""><li class="menu-item mega-menu-title sub-menu" style=""><ul class="sub-menu-container" style="">
+                  <li class="menu-item" data-tipo="29" style="">
+                  <a href="busca_andamento.asp?pesquisa=&amp;gbl=0&amp;tp=|446573656E686F732026206361726963617475726173|" class="menu-link"><div>Desenhos &amp; caricaturas</div></a>
+                  
+                  </li>
+                
+                  <li class="menu-item" data-tipo="129" style="">
+                  <a href="busca_andamento.asp?pesquisa=&amp;gbl=0&amp;tp=|446973636F2064652076696E696C|" class="menu-link"><div>Disco de vinil</div></a>
+                  
+                  </li>
+                
+                  <li class="menu-item" data-tipo="40" style="">
+                  <a href="busca_andamento.asp?pesquisa=&amp;gbl=0&amp;tp=|446F63756D656E746F73|" class="menu-link"><div>Documentos</div></a>
+                  
+                  </li>
+                
+                  <li class="menu-item" data-tipo="24" style="">
+                  <a href="busca_andamento.asp?pesquisa=&amp;gbl=0&amp;tp=|4573706F727465|" class="menu-link"><div>Esporte</div></a>
+                  
+                  </li>
+                
+                  <li class="menu-item" data-tipo="22" style="">
+                  <a href="busca_andamento.asp?pesquisa=&amp;gbl=0&amp;tp=|46696C6174656C6961|" class="menu-link"><div>Filatelia</div></a>
+     
+
+===== 2026-07-12T14:29:30.786529+00:00 =====
+URL: https://www.leiloesbr.com.br/busca_finalizado.asp?pesquisa=Afonso%20Celso&tp=|&op=2&v=126&pag=2
+'Vendido por' no DOM: NAO
+capturas de rede com valor: 0
+
+--- HTML final (trecho do meio) ---
+      <div class="mega-menu-content mega-menu-style-2 px-0" style="width: auto;">
+            <div class="container" style="">
+              <div class="row">
+                <div class="sub-menu-container mega-menu-column border-start-0 col-12 pb-0 pt-4" style="">
+                  <div class="menu-item mega-menu-title sub-menu is-tiptitle" style="">
+                    <a class="menu-link" href="javascript:;"><div>Joalheria</div></a>
+                    <a class="menu-close" href="#"><i class="icon-line-cross"></i></a>
+                  </div>
+                </div>
+              </div>
+              <div class="row" style="padding-right:320px; position:relative; flex-wrap:nowrap; min-height:430px;">
+                <ul class="sub-menu-container mega-menu-column border-start-0 col is-tipwrap-list" style=""><li class="menu-item mega-menu-title sub-menu" style=""><ul class="sub-menu-container" style="">
+                  <li class="menu-item" data-tipo="18" style="">
+                  <a href="busca_andamento.asp?pesquisa=&amp;gbl=0&amp;tp=|4A6F696173|" class="menu-link"><div>Joias</div></a>
+                  
+                  </li>
+                
+                  <li class="menu-item" data-tipo="41" style="">
+                  <a href="busca_andamento.asp?pesquisa=&amp;gbl=0&amp;tp=|52656CF367696F|" class="menu-link"><div>Relógio</div></a>
+                  
+                  </li>
+                
+                  <li class="menu-item" data-tipo="111" style="">
+                  <a href="busca_andamento.asp?pesquisa=&amp;gbl=0&amp;tp=|53656D69206AF3696173|" class="menu-link"><div>Semi jóias</div></a>
+                  
+                  </li>
+                </ul></li></ul>
+                <div class="sub-menu-container mega-menu-column border-start-0 is-tipwrap is-cat-2" style="position: absolute; top: 0px; right: 0px; left: auto; z-index: 5; padding: 0px;">
+
+                  <div class="is-tipwrap-img-final rounded" style="position: absolute; width: 300px; height: 400px; top: 0px; right: 20px; z-index: 5;">
+                    <img onerror="semImagem(this)" src="https://d1o6h00a1h5k7q.cloudfront.net/imagens/img_m/62285/31417518.jpg" loading="lazy" height="300px" width="400px" style="object-fit:cover;">
+                  </div>
+
+                </div>
+              </div>
+            </div>
+          </div>
+    
+    <button class="sub-menu-trigger icon-chevron-right"></button></li>
+    
+      <li class="menu-item mega-menu sub-menu" data-categoria="5" data-tipos="21|154|155|156|157|158|159|160|161|163|164|165|166|72|78">
+      
+        <a href="javascript:;" class="menu-link"><div>Numismática<i class="icon-angle-down"></i></div></a>
+          <div class="mega-menu-content mega-menu-style-2 px-0" style="width: auto;">
+            <div class="container" style="">
+              <div class="row">
+                <div class="sub-menu-container mega-menu-column border-start-0 col-12 pb-0 pt-4" style="">
+                  <div class="menu-item mega-menu-title sub-menu is-tiptitle" style="">
+                    <a class="menu-link" href="javascript:;"><div>Numismática</div></a>
+                    <a class="menu-close" href="#"><i class="icon-line-cross"></i></a>
+                  </div>
+                </div>
+              </div>
+              <div class="row" style="padding-right:320px; position:relative; flex-wrap:nowrap; min-height:430px;">
+                <ul class="sub-menu-container mega-menu-column border-start-0 col is-tipwrap
+
+===== 2026-07-12T14:30:14.633773+00:00 =====
+URL: https://www.leiloesbr.com.br/busca_finalizado.asp?pesquisa=Alberto%20de%20Oliveira&tp=|&op=2&v=126&pag=4
+'Vendido por' no DOM: NAO
+capturas de rede com valor: 0
+
+--- HTML final (trecho do meio) ---
+    
+                  </li>
+                
+                  <li class="menu-item" data-tipo="160" style="">
+                  <a href="busca_andamento.asp?pesquisa=&amp;gbl=0&amp;tp=|4E756D69736DE174696361202D204D6F6564612042697A616E74696E61|" class="menu-link"><div>Numismática - Moeda Bizantina</div></a>
+                  
+                  </li>
+                
+                  <li class="menu-item" data-tipo="158" style="">
+                  <a href="busca_andamento.asp?pesquisa=&amp;gbl=0&amp;tp=|4E756D69736DE174696361202D204D6F656461204772656761|" class="menu-link"><div>Numismática - Moeda Grega</div></a>
+                  
+                  </li>
+                
+                  <li class="menu-item" data-tipo="161" style="">
+                  <a href="busca_andamento.asp?pesquisa=&amp;gbl=0&amp;tp=|4E756D69736DE174696361202D204D6F656461204D6564696576616C|" class="menu-link"><div>Numismática - Moeda Medieval</div></a>
+                  
+                  </li>
+                </ul></li></ul><ul class="sub-menu-container mega-menu-column border-start-0 col is-tipwrap-list" style=""><li class="menu-item mega-menu-title sub-menu" style=""><ul class="sub-menu-container" style="">
+                  <li class="menu-item" data-tipo="159" style="">
+                  <a href="busca_andamento.asp?pesquisa=&amp;gbl=0&amp;tp=|4E756D69736DE174696361202D204D6F65646120526F6D616E61|" class="menu-link"><div>Numismática - Moeda Romana</div></a>
+                  
+                  </li>
+                
+                  <li class="menu-item" data-tipo="72" style="">
+                  <a href="busca_andamento.asp?pesquisa=&amp;gbl=0&amp;tp=|4E756D69736DE174696361202D204D6F65646173|" class="menu-link"><div>Numismática - Moedas</div></a>
+                  
+                  </li>
+                
+                  <li class="menu-item" data-tipo="163" style="">
+                  <a href="busca_andamento.asp?pesquisa=&amp;gbl=0&amp;tp=|4E756D69736DE174696361202D204D6F6564617320646F2042726173696C|" class="menu-link"><div>Numismática - Moedas do Brasil</div></a>
+                  
+                  </li>
+                
+                  <li class="menu-item" data-tipo="164" style="">
+                  <a href="busca_andamento.asp?pesquisa=&amp;gbl=0&amp;tp=|4E756D69736DE174696361202D204D6F656461732045737472616E676569726173|" class="menu-link"><div>Numismática - Moedas Estrangeiras</div></a>
+                  
+                  </li>
+                </ul></li></ul>
+                <div class="sub-menu-container mega-menu-column border-start-0 is-tipwrap is-cat-3" style="position: absolute; top: 0px; right: 0px; left: auto; z-index: 5; padding: 0px;">
+
+                  <div class="is-tipwrap-img-final rounded" style="position: absolute; width: 300px; height: 400px; top: 0px; right: 20px; z-index: 5;">
+                    <img onerror="semImagem(this)" src="https://d1o6h00a1h5k7q.cloudfront.net/imagens/img_m/62833/31487802.jpg" loading="lazy" height="300px" width="400px" style="object-fit:cover;">
+                  </div>
+
+                </div>
+              </div>
+            </div>
+          </div>
+    
+    <button class="sub-menu-trigger icon-chevron-right"></button></li>
+    
+      <li class="menu-item mega-menu sub-menu" data-categoria="6" data-tipos="1|36|67|68|70|104|98|99|103">
+      
+        <a href="javascript:;" class="menu-link"><div>Quadros<i class="icon-angle-down"></i></div></a>
+          <div class="mega-menu-content mega-menu-s
+
+===== 2026-07-12T14:30:41.234801+00:00 =====
+URL: https://www.leiloesbr.com.br/busca_finalizado.asp?pesquisa=Alcindo%20Guanabara&tp=|&op=2&v=126&pag=2
+'Vendido por' no DOM: NAO
+capturas de rede com valor: 0
+
+--- HTML final (trecho do meio) ---
+"menu-item" data-tipo="24" style="">
+                  <a href="busca_andamento.asp?pesquisa=&amp;gbl=0&amp;tp=|4573706F727465|" class="menu-link"><div>Esporte</div></a>
+                  
+                  </li>
+                
+                  <li class="menu-item" data-tipo="22" style="">
+                  <a href="busca_andamento.asp?pesquisa=&amp;gbl=0&amp;tp=|46696C6174656C6961|" class="menu-link"><div>Filatelia</div></a>
+                  
+                  </li>
+                
+                  <li class="menu-item" data-tipo="171" style="">
+                  <a href="busca_andamento.asp?pesquisa=&amp;gbl=0&amp;tp=|46696C6174656C69612042726173696C65697261|" class="menu-link"><div>Filatelia Brasileira</div></a>
+                  
+                  </li>
+                
+                  <li class="menu-item" data-tipo="172" style="">
+                  <a href="busca_andamento.asp?pesquisa=&amp;gbl=0&amp;tp=|46696C6174656C69612065737472616E6765697261|" class="menu-link"><div>Filatelia estrangeira</div></a>
+                  
+                  </li>
+                
+                  <li class="menu-item" data-tipo="174" style="">
+                  <a href="busca_andamento.asp?pesquisa=&amp;gbl=0&amp;tp=|46696C6174656C69612046697363616C|" class="menu-link"><div>Filatelia Fiscal</div></a>
+                  
+                  </li>
+                
+                  <li class="menu-item" data-tipo="169" style="">
+                  <a href="busca_andamento.asp?pesquisa=&amp;gbl=0&amp;tp=|47696269202F205175616472696E686F73|" class="menu-link"><div>Gibi / Quadrinhos</div></a>
+                  
+                  </li>
+                
+                  <li class="menu-item" data-tipo="45" style="">
+                  <a href="busca_andamento.asp?pesquisa=&amp;gbl=0&amp;tp=|47756572726173|" class="menu-link"><div>Guerras</div></a>
+                  
+                  </li>
+                </ul></li></ul><ul class="sub-menu-container mega-menu-column border-start-0 col is-tipwrap-list" style=""><li class="menu-item mega-menu-title sub-menu" style=""><ul class="sub-menu-container" style="">
+                  <li class="menu-item" data-tipo="47" style="">
+                  <a href="busca_andamento.asp?pesquisa=&amp;gbl=0&amp;tp=|48697374F3726961|" class="menu-link"><div>História</div></a>
+                  
+                  </li>
+                
+                  <li class="menu-item" data-tipo="35" style="">
+                  <a href="busca_andamento.asp?pesquisa=&amp;gbl=0&amp;tp=|49636F6E6F677261666961|" class="menu-link"><div>Iconografia</div></a>
+                  
+                  </li>
+                
+                  <li class="menu-item" data-tipo="46" style="">
+                  <a href="busca_andamento.asp?pesquisa=&amp;gbl=0&amp;tp=|496E63756EE162756C6F|" class="menu-link"><div>Incunábulo</div></a>
+                  
+                  </li>
+                
+                  <li class="menu-item" data-tipo="26" style="">
+                  <a href="busca_andamento.asp?pesquisa=&amp;gbl=0&amp;tp=|4C6976726F73202D20436F6C6563696F6E69736D6F|" class="menu-link"><div>Livros - Colecionismo</div></a>
+                  
+                  </li>
+                
+                  <li class="menu-item" data-tipo="31" style="">
+                  <a href="busca_andamento.asp?pesquisa=&amp;gbl=0&amp;tp=|4D616E7573637269746F73202620417574F3677261666F73|" class="menu-link"><div>Manuscritos &amp; Autógrafos</div></a>
+                  
+ 
+
+===== 2026-07-12T14:31:09.211336+00:00 =====
+URL: https://www.leiloesbr.com.br/busca_finalizado.asp?pesquisa=Alu%C3%ADsio%20Azevedo&tp=|&op=2&v=126&pag=2
+'Vendido por' no DOM: NAO
+capturas de rede com valor: 0
+
+--- HTML final (trecho do meio) ---
+="width: auto;">
+            <div class="container" style="">
+              <div class="row">
+                <div class="sub-menu-container mega-menu-column border-start-0 col-12 pb-0 pt-4" style="">
+                  <div class="menu-item mega-menu-title sub-menu is-tiptitle" style="">
+                    <a class="menu-link" href="javascript:;"><div>Joalheria</div></a>
+                    <a class="menu-close" href="#"><i class="icon-line-cross"></i></a>
+                  </div>
+                </div>
+              </div>
+              <div class="row" style="padding-right:320px; position:relative; flex-wrap:nowrap; min-height:430px;">
+                <ul class="sub-menu-container mega-menu-column border-start-0 col is-tipwrap-list" style=""><li class="menu-item mega-menu-title sub-menu" style=""><ul class="sub-menu-container" style="">
+                  <li class="menu-item" data-tipo="18" style="">
+                  <a href="busca_andamento.asp?pesquisa=&amp;gbl=0&amp;tp=|4A6F696173|" class="menu-link"><div>Joias</div></a>
+                  
+                  </li>
+                
+                  <li class="menu-item" data-tipo="41" style="">
+                  <a href="busca_andamento.asp?pesquisa=&amp;gbl=0&amp;tp=|52656CF367696F|" class="menu-link"><div>Relógio</div></a>
+                  
+                  </li>
+                
+                  <li class="menu-item" data-tipo="111" style="">
+                  <a href="busca_andamento.asp?pesquisa=&amp;gbl=0&amp;tp=|53656D69206AF3696173|" class="menu-link"><div>Semi jóias</div></a>
+                  
+                  </li>
+                </ul></li></ul>
+                <div class="sub-menu-container mega-menu-column border-start-0 is-tipwrap is-cat-2" style="position: absolute; top: 0px; right: 0px; left: auto; z-index: 5; padding: 0px;">
+
+                  <div class="is-tipwrap-img-final rounded" style="position: absolute; width: 300px; height: 400px; top: 0px; right: 20px; z-index: 5;">
+                    <img onerror="semImagem(this)" src="https://d1o6h00a1h5k7q.cloudfront.net/imagens/img_m/62285/31417518.jpg" loading="lazy" height="300px" width="400px" style="object-fit:cover;">
+                  </div>
+
+                </div>
+              </div>
+            </div>
+          </div>
+    
+    <button class="sub-menu-trigger icon-chevron-right"></button></li>
+    
+      <li class="menu-item mega-menu sub-menu" data-categoria="5" data-tipos="21|154|155|156|157|158|159|160|161|163|164|165|166|72|78">
+      
+        <a href="javascript:;" class="menu-link"><div>Numismática<i class="icon-angle-down"></i></div></a>
+          <div class="mega-menu-content mega-menu-style-2 px-0" style="width: auto;">
+            <div class="container" style="">
+              <div class="row">
+                <div class="sub-menu-container mega-menu-column border-start-0 col-12 pb-0 pt-4" style="">
+                  <div class="menu-item mega-menu-title sub-menu is-tiptitle" style="">
+                    <a class="menu-link" href="javascript:;"><div>Numismática</div></a>
+                    <a class="menu-close" href="#"><i class="icon-line-cross"></i></a>
+                  </div>
+                </div>
+              </div>
+              <div class="row" style="padding-right:320px; position:relative; flex-wrap:nowrap; min-height:430px;">
+                <ul class="sub-menu-container mega-menu-column border-start-0 col is-tipwrap-list" style=""><li class="menu-item mega-menu-title sub-menu" st
