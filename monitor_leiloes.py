@@ -600,6 +600,14 @@ def extrair_lotes(html: str) -> list:
         site_leiloeiro, id_leilao, id_lote = m.group(1), m.group(2), m.group(3)
         chave = f"{id_leilao}-{id_lote}"
         titulo = (a.get("title") or a.get_text(" ", strip=True) or "").strip()
+        # Alguns leiloeiros colam biografias inteiras (milhares de palavras)
+        # no atributo title do anúncio — não ajuda em nada na comparação de
+        # título/autor e só deixa o arquivo enorme e o painel lento. O
+        # conteúdo realmente útil (título, autor, editora, ano) está sempre
+        # no começo do texto.
+        LIMITE_DESCRICAO = 1500
+        if len(titulo) > LIMITE_DESCRICAO:
+            titulo = titulo[:LIMITE_DESCRICAO].rstrip() + "…"
         # fica com a versão mais longa da descrição encontrada para o lote
         if chave in lotes and len(titulo) <= len(lotes[chave]["descricao"]):
             continue
