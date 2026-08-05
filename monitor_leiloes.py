@@ -1352,7 +1352,43 @@ def rodar_backfill(autores, sessao, con, logado, colecao, dry_run=False):
     enviar_telegram(resumo, dry_run=dry_run)
 
 
-def rodar_busca_andamento_por_autor(autores, sessao, con, colecao, dry_run=False):
+def buscar_pagina_andamento_renderizada(contexto, url: str, timeout_ms: int = 40000) -> str:
+    """
+    Como buscar_pagina_renderizada, mas para busca_andamento.asp: os
+    resultados dessa busca por nome são injetados por JavaScript depois do
+    carregamento inicial (confirmado inspecionando a resposta crua em
+    produção — o HTML do servidor não tem nenhum "abre_catalogo" nela,
+    mesmo para autores com mais de 100 lotes reais). Por isso, diferente da
+    varredura por categoria (raspar_andamento, que É renderizada no
+    servidor), aqui precisa de navegador de verdade, não bastando
+    requests.get(). Espera pelo texto "abre_catalogo" aparecer no DOM (com
+    um teto curto, já que "0 resultados" também é uma resposta válida).
+    """
+    pagina = contexto.new_page()
+    try:
+        try:
+            pagina.goto(url, timeout=timeout_ms, wait_until="domcontentloaded")
+        except PlaywrightTimeoutError:
+            print(f"  [aviso] timeout ao carregar a página: {url}",
+                  file=sys.stderr)
+            return ""
+        try:
+            pagina.wait_for_function(
+                "document.body && document.body.innerHTML.includes('abre_catalogo')",
+                timeout=12000,
+            )
+        except PlaywrightTimeoutError:
+            pass  # pode ser 0 resultados de verdade para este autor
+        pagina.wait_for_timeout(500)
+        return pagina.content() or ""
+    except Exception as e:
+        print(f"  [aviso] falha ao renderizar página: {e}", file=sys.stderr)
+        return ""
+    finally:
+        pagina.close()
+
+
+def rodar_busca_andamento_por_autor(autores, con, colecao, dry_run=False):
     """
     Busca DEDICADA por autor nos leilões em andamento (busca_andamento.asp),
     autor por autor — em vez de confiar só na varredura de toda a categoria
@@ -1360,12 +1396,13 @@ def rodar_busca_andamento_por_autor(autores, sessao, con, colecao, dry_run=False
     pode nunca alcançar um lote seu se o site tiver muitos outros lotes em
     pregão no mesmo dia (o robô já perdeu um livro do Rodrigo Octávio assim:
     outros lotes do mesmo leilão foram vistos por sorte de paginação, esse
-    não). Mesma técnica já usada no backfill de leilões finalizados
-    (busca_finalizado.asp), adaptada para leilões ainda ativos.
+    não).
 
     Sem tp=<categoria> na URL — mesmo motivo do backfill: com o filtro de
     categoria junto da busca por nome, o site não retorna nada. Por isso
-    aplica parece_nao_livro() manualmente, como o backfill.
+    aplica parece_nao_livro() manualmente, como o backfill. E, como o
+    backfill, usa Playwright em vez de requests — essa busca por nome é
+    renderizada via JavaScript, não no HTML do servidor.
 
     Retorna a lista de todos os lotes vistos (novos ou já conhecidos) para
     o chamador poder tratá-los como "ainda em andamento" na etapa seguinte
@@ -1374,119 +1411,101 @@ def rodar_busca_andamento_por_autor(autores, sessao, con, colecao, dry_run=False
     agora = datetime.now(timezone.utc).isoformat(timespec="seconds")
     todos_vistos = []
     novos_por_autor = {}
-    for nome, _ in autores:
-        pag = 1
-        offset = 0
-        vistos_ids = set()
-        while pag <= MAX_PAGINAS:
-            # Formato confirmado testando a busca pelo formulário do site:
-            # busca_andamento.asp usa ga=*/uf=* (qualquer leiloeiro/estado) e
-            # nada de tp=/v=/pag= — parâmetros diferentes do busca_finalizado
-            # usado no backfill. Com tp=|&v=126&pag= (como aqui antes), a
-            # busca por autor voltava vazia mesmo com lotes existindo.
-            url = (f"{BASE}/busca_andamento.asp?op=2&b={offset}&ga=*&uf=*"
-                   f"&pesquisa={quote(nome)}")
+    with sync_playwright() as p:
+        navegador = p.chromium.launch()
+        contexto = criar_contexto_navegador(navegador)
+        try:
+            for nome, _ in autores:
+                pag = 1
+                offset = 0
+                vistos_ids = set()
+                while pag <= MAX_PAGINAS:
+                    # Formato confirmado testando a busca pelo formulário do
+                    # site: busca_andamento.asp usa ga=*/uf=* (qualquer
+                    # leiloeiro/estado) e nada de tp=/v=/pag=.
+                    url = (f"{BASE}/busca_andamento.asp?op=2&b={offset}"
+                           f"&ga=*&uf=*&pesquisa={quote(nome)}")
+                    html = buscar_pagina_andamento_renderizada(contexto, url)
+                    if not html:
+                        break
+                    lotes = extrair_lotes(html)
+                    lotes_novos_pagina = [l for l in lotes if l["id"] not in vistos_ids]
+                    if not lotes_novos_pagina:
+                        break
+                    for l in lotes_novos_pagina:
+                        vistos_ids.add(l["id"])
+                    todos_vistos.extend(lotes_novos_pagina)
+
+                    for lote in lotes_novos_pagina:
+                        if con.execute("SELECT 1 FROM lotes WHERE id=?",
+                                       (lote["id"],)).fetchone():
+                            continue
+                        achados = casar_autores(lote["descricao"], autores)
+                        if not achados:
+                            continue
+                        if parece_nao_livro(lote["descricao"]):
+                            continue
+                        passa_epoca, anos_str = classificar_epoca(lote["descricao"])
+                        if not passa_epoca:
+                            continue
+                        ano = (max(int(a) for a in anos_str.split(", "))
+                               if anos_str != "indefinido" else None)
+                        titulo = extrair_titulo(lote["descricao"])
+                        texto_comparar = titulo or lote["descricao"]
+                        status_col, reg_col = avaliar_contra_colecao(
+                            achados[0], texto_comparar, ano, colecao)
+                        tipo_item = ("carta_documento"
+                                     if parece_carta_documento(lote["descricao"])
+                                     else "livro")
+                        det = extrair_detalhes(lote["descricao"])
+
+                        con.execute(
+                            """INSERT INTO lotes (id, autor, titulo, ano, descricao,
+                                                  comentarios, status_colecao, tipo_item,
+                                                  edicao, primeira_edicao, editora, cidade,
+                                                  assinado, imagem_url, id_leilao,
+                                                  id_lote_leiloeiro, leiloeiro, uf,
+                                                  data_pregao, preco_inicial, url,
+                                                  visto_em, atualizado_em)
+                               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                            (lote["id"], ", ".join(achados), titulo, ano, lote["descricao"],
+                             extrair_info_adicional(lote["descricao"], titulo), status_col,
+                             tipo_item, det["edicao"], det["primeira_edicao"],
+                             det["editora"], det["cidade"], det["assinado"],
+                             lote.get("imagem_url", ""), lote.get("id_leilao", ""),
+                             lote.get("id_lote_leiloeiro", ""), lote["leiloeiro"],
+                             lote["uf"], lote["data_pregao"], lote["preco_inicial"],
+                             lote["url"], agora, agora))
+                        novos_por_autor[nome] = novos_por_autor.get(nome, 0) + 1
+
+                        if not deve_alertar_colecao(status_col):
+                            continue
+                        aviso_ano = (f"\nAno(s) na descrição: {anos_str}"
+                                     if anos_str != "indefinido" else
+                                     "\n⚠️ Ano não identificado na descrição — "
+                                     "confira manualmente")
+                        rotulo_col = rotulo_status_colecao(status_col, reg_col)
+                        enviar_telegram(
+                            "📚 Novo lote encontrado (busca dedicada por autor)!\n"
+                            f"Autor(es): {', '.join(achados)}\n"
+                            f"{lote['descricao'][:300]}\n"
+                            f"Lance inicial: R$ {lote['preco_inicial'] or '?'}\n"
+                            f"Pregão: {lote['data_pregao'] or '?'} ({lote['uf']}) — "
+                            f"{lote['leiloeiro'] or 'leiloeiro n/d'}"
+                            f"{aviso_ano}\n"
+                            + (f"{rotulo_col}\n" if rotulo_col else "")
+                            + f"{lote['url']}",
+                            dry_run=dry_run)
+                    con.commit()
+                    offset += len(lotes)
+                    pag += 1
+                time.sleep(PAUSA_ENTRE_PAGINAS)
+        finally:
             try:
-                r = sessao.get(url, headers=HEADERS, timeout=40)
-                r.raise_for_status()
-                html = r.text
-            except requests.RequestException as e:
-                print(f"  [aviso] falha na busca em andamento de {nome} "
-                      f"(página {pag}): {e}", file=sys.stderr)
-                break
-            lotes = extrair_lotes(html)
-            if pag == 1 and not lotes:
-                # Diagnóstico: em produção, essa busca voltou 0 lotes para
-                # TODOS os 81 autores mesmo com autores de nome comum (ex.:
-                # "Rodrigo Octavio") tendo mais de 100 lotes confirmados
-                # manualmente no site. A 1ª tentativa só capturou html[:4000]
-                # e isso é só o <head> (cheio de meta keywords SEO) — sem
-                # nada útil. Agora localiza o trecho relevante: em volta da
-                # 1ª ocorrência de "abre_catalogo" (lote de verdade) ou, se
-                # não achar nenhum, o meio do <body> (onde ficaria uma
-                # mensagem de "nenhum resultado").
-                idx = html.find("abre_catalogo")
-                if idx == -1:
-                    idx_body = html.find("<body")
-                    idx = idx_body + 2000 if idx_body != -1 else len(html) // 2
-                trecho = html[max(0, idx - 500):idx + 2500]
-                registrar_debug(
-                    "busca_autor_vazia",
-                    f"autor={nome}\nurl={url}\nstatus={r.status_code}\n"
-                    f"tamanho_html={len(html)}\n"
-                    f"contem_abre_catalogo={'abre_catalogo' in html}\n\n"
-                    f"{trecho}")
-            lotes_novos_pagina = [l for l in lotes if l["id"] not in vistos_ids]
-            if not lotes_novos_pagina:
-                break
-            for l in lotes_novos_pagina:
-                vistos_ids.add(l["id"])
-            todos_vistos.extend(lotes_novos_pagina)
-
-            for lote in lotes_novos_pagina:
-                if con.execute("SELECT 1 FROM lotes WHERE id=?",
-                               (lote["id"],)).fetchone():
-                    continue
-                achados = casar_autores(lote["descricao"], autores)
-                if not achados:
-                    continue
-                if parece_nao_livro(lote["descricao"]):
-                    continue
-                passa_epoca, anos_str = classificar_epoca(lote["descricao"])
-                if not passa_epoca:
-                    continue
-                ano = (max(int(a) for a in anos_str.split(", "))
-                       if anos_str != "indefinido" else None)
-                titulo = extrair_titulo(lote["descricao"])
-                texto_comparar = titulo or lote["descricao"]
-                status_col, reg_col = avaliar_contra_colecao(
-                    achados[0], texto_comparar, ano, colecao)
-                tipo_item = ("carta_documento"
-                             if parece_carta_documento(lote["descricao"])
-                             else "livro")
-                det = extrair_detalhes(lote["descricao"])
-
-                con.execute(
-                    """INSERT INTO lotes (id, autor, titulo, ano, descricao,
-                                          comentarios, status_colecao, tipo_item,
-                                          edicao, primeira_edicao, editora, cidade,
-                                          assinado, imagem_url, id_leilao,
-                                          id_lote_leiloeiro, leiloeiro, uf,
-                                          data_pregao, preco_inicial, url,
-                                          visto_em, atualizado_em)
-                       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
-                    (lote["id"], ", ".join(achados), titulo, ano, lote["descricao"],
-                     extrair_info_adicional(lote["descricao"], titulo), status_col,
-                     tipo_item, det["edicao"], det["primeira_edicao"],
-                     det["editora"], det["cidade"], det["assinado"],
-                     lote.get("imagem_url", ""), lote.get("id_leilao", ""),
-                     lote.get("id_lote_leiloeiro", ""), lote["leiloeiro"],
-                     lote["uf"], lote["data_pregao"], lote["preco_inicial"],
-                     lote["url"], agora, agora))
-                novos_por_autor[nome] = novos_por_autor.get(nome, 0) + 1
-
-                if not deve_alertar_colecao(status_col):
-                    continue
-                aviso_ano = (f"\nAno(s) na descrição: {anos_str}"
-                             if anos_str != "indefinido" else
-                             "\n⚠️ Ano não identificado na descrição — "
-                             "confira manualmente")
-                rotulo_col = rotulo_status_colecao(status_col, reg_col)
-                enviar_telegram(
-                    "📚 Novo lote encontrado (busca dedicada por autor)!\n"
-                    f"Autor(es): {', '.join(achados)}\n"
-                    f"{lote['descricao'][:300]}\n"
-                    f"Lance inicial: R$ {lote['preco_inicial'] or '?'}\n"
-                    f"Pregão: {lote['data_pregao'] or '?'} ({lote['uf']}) — "
-                    f"{lote['leiloeiro'] or 'leiloeiro n/d'}"
-                    f"{aviso_ano}\n"
-                    + (f"{rotulo_col}\n" if rotulo_col else "")
-                    + f"{lote['url']}",
-                    dry_run=dry_run)
-            con.commit()
-            offset += len(lotes)
-            pag += 1
-        time.sleep(PAUSA_ENTRE_PAGINAS)
+                contexto.close()
+            except Exception:
+                pass
+            navegador.close()
 
     total = sum(novos_por_autor.values())
     print(f"Busca dedicada em andamento: {total} lote(s) novo(s) em "
@@ -1658,7 +1677,7 @@ def main():
     # categoria inteira.
     print("Buscando diretamente por autor nos leilões em andamento...")
     lotes_autor = rodar_busca_andamento_por_autor(
-        autores, sessao, con, colecao, dry_run=args.dry_run)
+        autores, con, colecao, dry_run=args.dry_run)
 
     # 2) Captura de valores finais ----------------------------------------
     print("Verificando lotes pendentes de valor final...")
