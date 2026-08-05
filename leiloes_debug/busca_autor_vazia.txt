@@ -1,0 +1,40 @@
+
+===== 2026-08-05T17:31:36.032958+00:00 =====
+autor=Franklin Dória (Barão de Loreto)
+url=https://www.leiloesbr.com.br/busca_andamento.asp?op=2&b=0&ga=*&uf=*&pesquisa=Franklin%20D%C3%B3ria%20%28Bar%C3%A3o%20de%20Loreto%29
+status=200
+tamanho_html=132504
+
+
+
+<!DOCTYPE html>
+<html dir="ltr" lang="en-US">
+<head>
+
+	<meta http-equiv="content-type" content="text/html; charset=utf-8" />
+	<meta name="author" content="LeilÃµesBR" />
+  <meta name="theme-color" content="black" />
+  <meta name="p:domain_verify" content="0390cd3d758112ad5da8380fe2711ddf"/>
+  <meta http-equiv="x-ua-compatible" content="ie=edge">
+  <!-- Set the viewport width to device width for mobile -->
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <!--  <meta http-equiv="refresh" content="600"> -->
+  <meta name="keywords" content="LeilÃµesBR, LeilÃµes BR, LeilÃµes Brasil, LeilÃµes Online, LeilÃµes ao vivo, LeilÃ£o de artes, LeilÃµes de artes, LeilÃµes de Colecionismo,
+  LeilÃµes Rio, LeilÃ£o presencial, LeilÃµes presenciais, LeilÃ£o presencial e online, Assistir LeilÃ£o online, assistir LeilÃµes online, LeilÃ£o de filatelia, LeilÃµes de filatelia,
+  LeilÃ£o ao vivo internet, LeilÃµes ao vivo internet, LeilÃ£o de mÃ³veis, LeilÃµes de mÃ³veis, LeilÃ£o de mÃ³veis antigos, LeilÃµes de mÃ³veis antigos, LeilÃ£o de fotografia,
+  LeilÃ£o de quadros, LeilÃµes de quadros, LeilÃ£o de escultura, LeilÃµes de esculturas, LeilÃ£o de antiguidades, LeilÃµes de antiguidades, LeilÃµes de fotografia,
+  LeilÃ£o de numismÃ¡tica, LeilÃµes de numismÃ¡tica, LeilÃ£o de moedas, LeilÃµes de moedas, LeilÃ£o de militaria, LeilÃµes de militaria, LeilÃ£o de medalhas,
+  LeilÃ£o pÃºblico, LeilÃµes pÃºblicos, LeilÃ£o pÃºblico autorizado, LeilÃµes pÃºblicos autorizados, LeilÃ£o de Arte sacra, LeilÃµes de arte sacra, LeilÃµes de medalhas,
+  LeilÃ£o de documentos, LeilÃµes de documentos, LeilÃ£o de espelhos, LeilÃµes de espelhos, LeilÃ£o de faqueiros, LeilÃµes de faqueiros, LeilÃ£o de jÃ³ias, LeilÃµes de jÃ³ias,
+  LeilÃ£o de anÃ©is, LeilÃµes de anÃ©is, LeilÃ£o de relÃ³gio, LeilÃµes de relÃ³gios, LeilÃ£o de livros, LeilÃµes de livros, LeilÃ£o de lustres, LeilÃµes de lustres, LeilÃ£o de candelabros,
+  LeilÃµes de candelabros, LeilÃ£o de prataria, LeilÃµes de pratarias, LeilÃ£o de luminÃ¡rias, LeilÃµes de luminÃ¡rias, LeilÃ£o de marfim, LeilÃµes de marfim, LeilÃ£o de litogravura,
+  LeilÃµes de litogravura, LeilÃ£o de pinturas, LeilÃµes de pinturas, LeilÃ£o de porcelana, LeilÃµes de porcelana, LeilÃ£o de pratos de porcelana, LeilÃµes de pratos de porcelana,
+  LeilÃ£o de vasos, LeilÃµes de vasos, LeilÃ£o de vasos de porcelana chinesa, LeilÃµes de porcelana chinesa, LeilÃ£o de cartÃ£o postal, LeilÃ£o de cartÃµes postais,
+  LeilÃ£o de selos, LeilÃµes de selos, LeilÃ£o de dinheiro, LeilÃµes de dinheiro, LeilÃ£o de serigrafia, LeilÃµes de serigrafia, LeilÃ£o de tapetes, LeilÃµes de tapetes, LeilÃ£o de tapeÃ§aria,
+  LeilÃµes de tapeÃ§arias, LeilÃ£o de taxidermia, LeilÃµes de taxidermia, LeilÃ£o de vidros, LeilÃµes de vidros, LeilÃ£o de fabergÃ©, LeilÃµes de fabergÃ©, LeilÃ£o de dunquerque, LeilÃµes de dunquerque,
+  LeilÃ£o de baccarat, LeilÃµes de baccarat, LeilÃ£o de claret jug, LeilÃµes de claret jug, LeilÃ£o de Ã¢nforas, LeilÃµes de Ã¢nforas, LeilÃ£o de miniaturas, LeilÃµes de miniaturas,
+  LeilÃ£o de espadas, LeilÃµes de espadas, LeilÃ£o de objetos de decoraÃ§Ã£o, LeilÃµes de objetos de decoraÃ§Ã£o, melhor LeilÃ£o online, LeilÃ£o confiÃ¡vel, LeilÃµes confiÃ¡veis,
+  LeilÃ£o de Ã³leo sobre tela, LeilÃµes de Ã³leo sobre tela, LeilÃ£o de cÃ©dulas, LeilÃµes de cÃ©dulas, LeilÃ£o de bonecas, LeilÃµes de bonecas, LeilÃ£o de autÃ³grafos, LeilÃµes de autÃ³grafos,
+  LeilÃ£o de cadeiras, LeilÃµes de cadeiras, LeilÃ£o de Arte Africana, LeilÃµes de Arte Africana, LeilÃ£o de Cristais, LeilÃµes de Cristais, LeilÃ£o de guerra, LeilÃµes de Guerras,
+  LeilÃ£o de revistas, LeilÃµes de revistas, LeilÃ£o de prata de lei, LeilÃµes de prata de lei, LeilÃ£o de murano, LeilÃµes de murano, LeilÃ£o de Linoleogravura, LeilÃµes de Linoleogravura,
+  LeilÃ£o de IncunÃ¡bulo, LeilÃµes de IncunÃ¡bulo, LeilÃ£o de Iconografia, LeilÃµes de Iconografia, LeilÃ£o de IndumentÃ¡ria, LeilÃµes de IndumentÃ¡ria, LeilÃ£o de folclore, LeilÃµes de folclor
