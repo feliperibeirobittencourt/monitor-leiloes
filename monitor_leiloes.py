@@ -1376,10 +1376,16 @@ def rodar_busca_andamento_por_autor(autores, sessao, con, colecao, dry_run=False
     novos_por_autor = {}
     for nome, _ in autores:
         pag = 1
+        offset = 0
         vistos_ids = set()
         while pag <= MAX_PAGINAS:
-            url = (f"{BASE}/busca_andamento.asp?pesquisa={quote(nome)}"
-                   f"&tp=|&op=2&v=126&b=0&pag={pag}")
+            # Formato confirmado testando a busca pelo formulário do site:
+            # busca_andamento.asp usa ga=*/uf=* (qualquer leiloeiro/estado) e
+            # nada de tp=/v=/pag= — parâmetros diferentes do busca_finalizado
+            # usado no backfill. Com tp=|&v=126&pag= (como aqui antes), a
+            # busca por autor voltava vazia mesmo com lotes existindo.
+            url = (f"{BASE}/busca_andamento.asp?op=2&b={offset}&ga=*&uf=*"
+                   f"&pesquisa={quote(nome)}")
             try:
                 r = sessao.get(url, headers=HEADERS, timeout=40)
                 r.raise_for_status()
@@ -1457,6 +1463,7 @@ def rodar_busca_andamento_por_autor(autores, sessao, con, colecao, dry_run=False
                     + f"{lote['url']}",
                     dry_run=dry_run)
             con.commit()
+            offset += len(lotes)
             pag += 1
         time.sleep(PAUSA_ENTRE_PAGINAS)
 
