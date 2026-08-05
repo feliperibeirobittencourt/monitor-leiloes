@@ -36,6 +36,12 @@ jobs:
     steps:
       - name: Baixar os arquivos do repositório
         uses: actions/checkout@v4
+        with:
+          # Clone raso (padrão) esconde o histórico anterior ao commit
+          # baixado; se este run for disparado numa branch com commits que a
+          # main não tem, o "git pull --rebase" abaixo não acha ancestral
+          # comum e trata todo arquivo igual como conflito "add/add".
+          fetch-depth: 0
 
       - name: Preparar Python
         uses: actions/setup-python@v5

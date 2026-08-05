@@ -25,6 +25,11 @@ jobs:
     steps:
       - name: Baixar os arquivos do repositório
         uses: actions/checkout@v4
+        with:
+          # Ver comentário equivalente em monitor.yml: clone raso quebra o
+          # "git pull --rebase" abaixo quando o run parte de uma branch com
+          # commits que a main não tem.
+          fetch-depth: 0
 
       - name: Preparar Python
         uses: actions/setup-python@v5
