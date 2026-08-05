@@ -1399,14 +1399,23 @@ def rodar_busca_andamento_por_autor(autores, sessao, con, colecao, dry_run=False
                 # Diagnóstico: em produção, essa busca voltou 0 lotes para
                 # TODOS os 81 autores mesmo com autores de nome comum (ex.:
                 # "Rodrigo Octavio") tendo mais de 100 lotes confirmados
-                # manualmente no site. Grava a resposta crua para descobrir
-                # se é bloqueio de bot, HTML em formato diferente do
-                # esperado por extrair_lotes(), ou parâmetro de query ainda
-                # errado — em vez de continuar advinhando.
+                # manualmente no site. A 1ª tentativa só capturou html[:4000]
+                # e isso é só o <head> (cheio de meta keywords SEO) — sem
+                # nada útil. Agora localiza o trecho relevante: em volta da
+                # 1ª ocorrência de "abre_catalogo" (lote de verdade) ou, se
+                # não achar nenhum, o meio do <body> (onde ficaria uma
+                # mensagem de "nenhum resultado").
+                idx = html.find("abre_catalogo")
+                if idx == -1:
+                    idx_body = html.find("<body")
+                    idx = idx_body + 2000 if idx_body != -1 else len(html) // 2
+                trecho = html[max(0, idx - 500):idx + 2500]
                 registrar_debug(
                     "busca_autor_vazia",
                     f"autor={nome}\nurl={url}\nstatus={r.status_code}\n"
-                    f"tamanho_html={len(html)}\n\n{html[:4000]}")
+                    f"tamanho_html={len(html)}\n"
+                    f"contem_abre_catalogo={'abre_catalogo' in html}\n\n"
+                    f"{trecho}")
             lotes_novos_pagina = [l for l in lotes if l["id"] not in vistos_ids]
             if not lotes_novos_pagina:
                 break
