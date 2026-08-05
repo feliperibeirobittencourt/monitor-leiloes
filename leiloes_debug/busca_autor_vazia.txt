@@ -38,3 +38,53 @@ tamanho_html=132504
   LeilÃ£o de cadeiras, LeilÃµes de cadeiras, LeilÃ£o de Arte Africana, LeilÃµes de Arte Africana, LeilÃ£o de Cristais, LeilÃµes de Cristais, LeilÃ£o de guerra, LeilÃµes de Guerras,
   LeilÃ£o de revistas, LeilÃµes de revistas, LeilÃ£o de prata de lei, LeilÃµes de prata de lei, LeilÃ£o de murano, LeilÃµes de murano, LeilÃ£o de Linoleogravura, LeilÃµes de Linoleogravura,
   LeilÃ£o de IncunÃ¡bulo, LeilÃµes de IncunÃ¡bulo, LeilÃ£o de Iconografia, LeilÃµes de Iconografia, LeilÃ£o de IndumentÃ¡ria, LeilÃµes de IndumentÃ¡ria, LeilÃ£o de folclore, LeilÃµes de folclor
+
+===== 2026-08-05T17:48:22.965694+00:00 =====
+autor=Franklin Dória (Barão de Loreto)
+url=https://www.leiloesbr.com.br/busca_andamento.asp?op=2&b=0&ga=*&uf=*&pesquisa=Franklin%20D%C3%B3ria%20%28Bar%C3%A3o%20de%20Loreto%29
+status=200
+tamanho_html=132504
+contem_abre_catalogo=False
+
+<a href="catalogo.asp?nv=1">Novos</a></li>
+            <li class="top-links-item"><a href="https://blog.leiloesbr.com.br/" target="_blank">Blog</a></li>
+            <li class="top-links-item"><a href="ajuda.asp">Ajuda</a></li>
+            <li class="top-links-item "><a href="contato.asp">Contato</a></li>
+
+            <!-- <li class="top-links-item"><a href="#">LeilÃµes</a>
+              <ul class="top-links-sub-menu">
+                <li class="top-links-item"><a href="catalogo.asp?dt=8/5/2026">Hoje</a></li>
+                <li class="top-links-item"><a href="catalogo.asp?nv=1">Novos leilÃµes</a></li>
+                <li class="top-links-item"><a href="#">Ultimos leilÃµes realizados</a></li>
+                <li class="top-links-item"><a href="catalogo.asp">Todos os leilÃµes</a></li>
+              </ul>
+            </li> -->
+          </ul>
+        </div><!-- .top-links end -->
+
+        <!-- Top Social
+        ============================================= -->
+        <ul id="top-social">
+          <li><a href="https://www.facebook.com/Leiloesbr" class="si-facebook" target="_blank"><span class="ts-icon"><i class="icon-facebook"></i></span><span class="ts-text">Facebook</span></a></li>
+          <li><a href="https://www.instagram.com/leiloesbr.com.br/" class="si-instagram" target="_blank"><span class="ts-icon"><i class="icon-instagram2"></i></span><span class="ts-text">Instagram</span></a></li>
+          <li><a href="https://twitter.com/leiloesbr" class="si-twitter" target="_blank"><span class="ts-icon"><i class="bi bi-twitter-x"></i></span><span class="ts-text">Twitter</span></a></li>
+          <li><a href="https://www.pinterest.com/LeiloesBR/" class="si-pinterest" target="_blank"><span class="ts-icon"><i class="icon-pinterest2"></i></span><span class="ts-text">Pinterest</span></a></li>
+          <li><a href="https://www.tiktok.com/@leiloesbr?lang=pt-BR" class="si-tiktok" target="_blank"><span class="ts-icon"><i class="icon-tiktok"></i></span><span class="ts-text">TikTok</span></a></li>
+          <li><a href="https://www.youtube.com/c/Leil%C3%B5esBR" class="si-youtube" target="_blank"><span class="ts-icon"><i class="icon-youtube"></i></span><span class="ts-text">Youtube</span></a></li>
+          <li><a href="tel:(21) 3593-9225" class="si-call"><span class="ts-icon"><i class="icon-call"></i></span><span class="ts-text">(21) 3593-9225 / (21) 3593-9780</span></a></li>
+          <li><a href="mailto:contato@leiloesbr.com.br" class="si-email3"><span class="ts-icon"><i class="icon-envelope-alt"></i></span><span class="ts-text">contato@leiloesbr.com.br</span></a></li>
+        </ul><!-- #top-social end -->
+
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<!-- Header
+============================================= -->
+<header id="header" class="full-header header-size-md">
+
+  <div id="header-wrap">
+    <div class="container">
+      <div class="header-row justify-content-between align-items-stretch" style="flex-wrap:nowrap;">
