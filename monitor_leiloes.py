@@ -1395,6 +1395,18 @@ def rodar_busca_andamento_por_autor(autores, sessao, con, colecao, dry_run=False
                       f"(página {pag}): {e}", file=sys.stderr)
                 break
             lotes = extrair_lotes(html)
+            if pag == 1 and not lotes:
+                # Diagnóstico: em produção, essa busca voltou 0 lotes para
+                # TODOS os 81 autores mesmo com autores de nome comum (ex.:
+                # "Rodrigo Octavio") tendo mais de 100 lotes confirmados
+                # manualmente no site. Grava a resposta crua para descobrir
+                # se é bloqueio de bot, HTML em formato diferente do
+                # esperado por extrair_lotes(), ou parâmetro de query ainda
+                # errado — em vez de continuar advinhando.
+                registrar_debug(
+                    "busca_autor_vazia",
+                    f"autor={nome}\nurl={url}\nstatus={r.status_code}\n"
+                    f"tamanho_html={len(html)}\n\n{html[:4000]}")
             lotes_novos_pagina = [l for l in lotes if l["id"] not in vistos_ids]
             if not lotes_novos_pagina:
                 break
