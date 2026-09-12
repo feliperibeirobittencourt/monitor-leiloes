@@ -1682,10 +1682,10 @@ def main():
     # 2) Captura de valores finais ----------------------------------------
     print("Verificando lotes pendentes de valor final...")
     pendentes = con.execute(
-        "SELECT id, url, autor FROM lotes WHERE status='em_andamento'"
+        "SELECT id, url, autor, status_colecao FROM lotes WHERE status='em_andamento'"
     ).fetchall()
     ids_ativos = {l["id"] for l in lotes} | {l["id"] for l in lotes_autor}
-    for id_, url, aut in pendentes:
+    for id_, url, aut, status_col in pendentes:
         if id_ in ids_ativos:
             continue  # ainda em andamento
         valor, status = buscar_valor_final(sessao, url)
@@ -1694,7 +1694,12 @@ def main():
             con.execute(
                 "UPDATE lotes SET valor_final=?, status=?, atualizado_em=? "
                 "WHERE id=?", (valor, status, agora, id_))
-            if status == "vendido" and valor:
+            # Mesmo critério do alerta de "achei": não vale a pena avisar de
+            # um lote que já é exatamente a edição que a pessoa tem — sem
+            # isso, um lote assim nunca gerava alerta de "achei" (por
+            # design), mas ainda assim mandava "Arrematado" depois, virando
+            # a ÚNICA mensagem recebida sobre ele (reportado pelo usuário).
+            if status == "vendido" and valor and deve_alertar_colecao(status_col):
                 enviar_telegram(
                     f"🔨 Arrematado — {aut}\nValor final: R$ {valor}\n{url}",
                     dry_run=args.dry_run)
