@@ -1,0 +1,3 @@
+sem_tp_total=0
+
+Ethnographia NAO encontrado na busca textual sem filtro de categoria (pode ja ter sido arrematado/removido).
