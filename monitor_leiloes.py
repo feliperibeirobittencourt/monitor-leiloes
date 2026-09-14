@@ -43,6 +43,34 @@ from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
 BASE = "https://www.leiloesbr.com.br"
 # Categoria "Livros" (o parâmetro tp é o nome da categoria em hexadecimal latin-1)
 CAT_LIVROS_HEX = "4C6976726F73"  # "Livros"
+# O site separa "Livros" em subcategorias específicas (Livros - Raros, Livros -
+# Biografias, etc.) que NÃO aparecem na varredura da categoria genérica acima —
+# um lote cadastrado só numa subcategoria fica invisível pra gente. Foi assim que
+# perdemos "Ethnographia Brazileira" (Sílvio Romero), cadastrado em "Livros -
+# Raros". Códigos extraídos do próprio menu de categorias do site (link
+# tp=|hex| de cada item), não adivinhados.
+CATEGORIAS_LIVROS_HEX = {
+    "Livros": CAT_LIVROS_HEX,
+    "Livros - Arquitetura": "4C6976726F73202D204172717569746574757261",
+    "Livros - Artes": "4C6976726F73202D204172746573",
+    "Livros - Biografias": "4C6976726F73202D2042696F67726166696173",
+    "Livros - Colecionismo": "4C6976726F73202D20436F6C6563696F6E69736D6F",
+    "Livros - Direito": "4C6976726F73202D204469726569746F",
+    "Livros - Economia": "4C6976726F73202D2045636F6E6F6D6961",
+    "Livros - Enciclopédia": "4C6976726F73202D20456E6369636C6F70E9646961",
+    "Livros - Filosofia": "4C6976726F73202D2046696C6F736F666961",
+    "Livros - Folclore": "4C6976726F73202D20466F6C636C6F7265",
+    "Livros - Fotografia": "4C6976726F73202D20466F746F677261666961",
+    "Livros - Gastronomia": "4C6976726F73202D2047617374726F6E6F6D6961",
+    "Livros - História": "4C6976726F73202D2048697374F3726961",
+    "Livros - Literatura brasileira": "4C6976726F73202D204C6974657261747572612062726173696C65697261",
+    "Livros - Literatura estrangeira": "4C6976726F73202D204C6974657261747572612065737472616E6765697261",
+    "Livros - Literatura infantil": "4C6976726F73202D204C69746572617475726120696E66616E74696C",
+    "Livros - Moda": "4C6976726F73202D204D6F6461",
+    "Livros - Raros": "4C6976726F73202D205261726F73",
+    "Livros - Religiosos": "4C6976726F73202D2052656C6967696F736F73",
+    "Livros - Sociologia & Antropologia": "4C6976726F73202D20536F63696F6C6F676961202620416E74726F706F6C6F676961",
+}
 # op=2 = leilões em andamento (padrão da busca); v=126 itens por página
 URL_ANDAMENTO = (
     BASE + "/busca_andamento.asp?pesquisa=&op=2&v=126&tp=|{cat}|&b=0&pag={pag}"
@@ -573,8 +601,8 @@ def avaliar_contra_colecao(autor: str, titulo_leilao: str, ano_leilao, colecao: 
 # ----------------------------------------------------------------------------
 # Raspagem
 # ----------------------------------------------------------------------------
-def buscar_pagina(sessao: requests.Session, pag: int) -> str:
-    url = URL_ANDAMENTO.format(cat=CAT_LIVROS_HEX, pag=pag)
+def buscar_pagina(sessao: requests.Session, pag: int, cat: str = CAT_LIVROS_HEX) -> str:
+    url = URL_ANDAMENTO.format(cat=cat, pag=pag)
     r = sessao.get(url, headers=HEADERS, timeout=40)
     r.raise_for_status()
     return r.text
@@ -676,23 +704,24 @@ def extrair_lotes(html: str) -> list:
 
 
 def raspar_andamento(sessao: requests.Session) -> list:
-    """Percorre todas as páginas da categoria Livros e devolve todos os lotes."""
+    """Percorre todas as páginas de Livros e de suas subcategorias e devolve todos os lotes."""
     todos, vistos = [], set()
-    for pag in range(1, MAX_PAGINAS + 1):
-        try:
-            html = buscar_pagina(sessao, pag)
-        except requests.RequestException as e:
-            print(f"[aviso] falha na página {pag}: {e}", file=sys.stderr)
-            break
-        lotes = extrair_lotes(html)
-        novos = [l for l in lotes if l["id"] not in vistos]
-        if not novos:  # fim da paginação
-            break
-        for l in novos:
-            vistos.add(l["id"])
-        todos.extend(novos)
-        print(f"  página {pag}: {len(novos)} lotes")
-        time.sleep(PAUSA_ENTRE_PAGINAS)
+    for nome_cat, cat_hex in CATEGORIAS_LIVROS_HEX.items():
+        for pag in range(1, MAX_PAGINAS + 1):
+            try:
+                html = buscar_pagina(sessao, pag, cat=cat_hex)
+            except requests.RequestException as e:
+                print(f"[aviso] falha em {nome_cat!r}, página {pag}: {e}", file=sys.stderr)
+                break
+            lotes = extrair_lotes(html)
+            novos = [l for l in lotes if l["id"] not in vistos]
+            if not novos:  # fim da paginação desta (sub)categoria
+                break
+            for l in novos:
+                vistos.add(l["id"])
+            todos.extend(novos)
+            print(f"  {nome_cat} - página {pag}: {len(novos)} lotes")
+            time.sleep(PAUSA_ENTRE_PAGINAS)
     return todos
 
 
