@@ -712,16 +712,24 @@ def raspar_andamento(sessao: requests.Session) -> list:
                 html = buscar_pagina(sessao, pag, cat=cat_hex)
             except requests.RequestException as e:
                 print(f"[aviso] falha em {nome_cat!r}, página {pag}: {e}", file=sys.stderr)
+                time.sleep(PAUSA_ENTRE_PAGINAS)
                 break
             lotes = extrair_lotes(html)
             novos = [l for l in lotes if l["id"] not in vistos]
+            # Sempre espera antes de seguir pra próxima página/categoria — mesmo
+            # quando a página veio vazia — pra não emendar requisições sem pausa
+            # nenhuma na troca de categoria (motivo de instabilidade observada
+            # em testes: respostas vazias/genéricas do site sob rajada).
+            time.sleep(PAUSA_ENTRE_PAGINAS)
+            if pag == 1:
+                print(f"  {nome_cat} - página 1: {len(lotes)} lotes ({len(novos)} novos)")
+            elif novos:
+                print(f"  {nome_cat} - página {pag}: {len(novos)} lotes")
             if not novos:  # fim da paginação desta (sub)categoria
                 break
             for l in novos:
                 vistos.add(l["id"])
             todos.extend(novos)
-            print(f"  {nome_cat} - página {pag}: {len(novos)} lotes")
-            time.sleep(PAUSA_ENTRE_PAGINAS)
     return todos
 
 
