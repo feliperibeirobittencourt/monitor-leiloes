@@ -21,7 +21,7 @@ jobs:
           python-version: "3.12"
 
       - name: Instalar dependências
-        run: pip install requests beautifulsoup4
+        run: pip install requests beautifulsoup4 playwright
 
       - name: Rodar diagnóstico
         run: python scripts_debug_raros.py
